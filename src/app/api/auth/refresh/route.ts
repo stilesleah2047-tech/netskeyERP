@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
 
   const accessToken = signAccessToken({
     sub: user._id.toString(),
+    businessId: user.businessId.toString(),
     role: user.role,
     branchId: user.branchId ? user.branchId.toString() : null,
     deviceId,

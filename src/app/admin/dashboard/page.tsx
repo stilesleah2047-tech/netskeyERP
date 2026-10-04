@@ -115,9 +115,15 @@ export default function AdminDashboardPage() {
       <header className="bg-depth-900 px-5 pb-8 pt-8 text-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wide text-flow-400">Vessel</p>
+            <p className="text-xs uppercase tracking-wide text-flow-400">
+              {me.businessName ?? "Vessel"}
+            </p>
             <h1 className="font-display text-xl font-bold">
-              {me.role === "SUPER_ADMIN" ? "Global Control Center" : "Branch Dashboard"}
+              {me.role === "SUPER_ADMIN"
+                ? "Global Control Center"
+                : me.branchName
+                ? `${me.branchName} Dashboard`
+                : "Branch Dashboard"}
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-3">

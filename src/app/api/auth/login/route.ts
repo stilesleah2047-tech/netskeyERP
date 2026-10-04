@@ -4,6 +4,7 @@ import { connectDb } from "@/lib/server/db";
 import { User } from "@/lib/server/models/User";
 import { UserSession } from "@/lib/server/models/UserSession";
 import { Branch } from "@/lib/server/models/Branch";
+import { Business } from "@/lib/server/models/Business";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
 import { getEnv } from "@/lib/server/env";
@@ -93,18 +94,22 @@ export async function POST(req: NextRequest) {
 
   const accessToken = signAccessToken({
     sub: user._id.toString(),
+    businessId: user.businessId.toString(),
     role: user.role,
     branchId: user.branchId ? user.branchId.toString() : null,
     deviceId,
   });
 
   const branch = user.branchId ? await Branch.findById(user.branchId).lean() : null;
+  const business = await Business.findById(user.businessId).lean();
 
   const res = NextResponse.json({
     user: {
       id: user._id,
       name: user.name,
       role: user.role,
+      businessId: user.businessId,
+      businessName: business?.name ?? null,
       branchId: user.branchId,
       branchName: branch?.branchName ?? null,
       phoneNumber: user.phoneNumber,

@@ -12,7 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: { transactionI
   const auth = getAuth(req);
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const txn = await Transaction.findById(params.transactionId);
+  const txn = await Transaction.findOne({ _id: params.transactionId, businessId: auth.businessId });
   if (!txn) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
 
   const ageMs = Date.now() - txn.createdAt.getTime();

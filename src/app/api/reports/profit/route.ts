@@ -30,12 +30,13 @@ export async function GET(req: NextRequest) {
   const to = url.searchParams.get("to") ? new Date(url.searchParams.get("to")!) : now;
 
   const branchObjId = branchId ? new mongoose.Types.ObjectId(branchId) : null;
+  const businessObjId = new mongoose.Types.ObjectId(auth.businessId);
   const dateMatch = { createdAt: { $gte: from, $lte: to } };
 
-  const salesMatch: Record<string, unknown> = { ...dateMatch, paymentStatus: "SUCCESS" };
+  const salesMatch: Record<string, unknown> = { ...dateMatch, businessId: businessObjId, paymentStatus: "SUCCESS" };
   if (branchObjId) salesMatch.branchId = branchObjId;
 
-  const costMatch: Record<string, unknown> = { ...dateMatch };
+  const costMatch: Record<string, unknown> = { ...dateMatch, businessId: businessObjId };
   if (branchObjId) costMatch.branchId = branchObjId;
 
   const [salesAgg, purchaseAgg, expenseAgg] = await Promise.all([

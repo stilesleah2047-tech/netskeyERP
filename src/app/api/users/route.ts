@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
   }
 
   const branchId = resolveBranchScope(auth!, req.nextUrl.searchParams.get("branchId"));
-  const filter: Record<string, unknown> = branchId ? { branchId } : {};
+  // businessId is the hard tenant boundary; branchId narrows within it.
+  const filter: Record<string, unknown> = { businessId: auth!.businessId };
+  if (branchId) filter.branchId = branchId;
   const users = await User.find(filter).select("-passwordHash").sort({ name: 1 }).lean();
   return NextResponse.json({ users });
 }
@@ -60,6 +62,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "branchId is required for this role" }, { status: 400 });
   }
 
+  // Any branch supplied (by a SUPER_ADMIN creating a manager/staff for a
+  // specific branch) MUST belong to this business — otherwise a crafted
+  // branchId from another tenant could attach a user cross-tenant.
+  if (branchId) {
+    const branch = await Branch.findOne({ _id: branchId, businessId: auth!.businessId }).lean();
+    if (!branch) {
+      return NextResponse.json({ error: "Branch not found in your business" }, { status: 404 });
+    }
+  }
+
   let phone: string;
   try {
     phone = normalizeKenyanPhone(data.phoneNumber);
@@ -71,6 +83,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const user = await User.create({
+      businessId: auth!.businessId,
       name: data.name,
       role: data.role,
       branchId: branchId ?? null,
@@ -80,7 +93,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (data.role === "BRANCH_MANAGER" && branchId) {
-      await Branch.findByIdAndUpdate(branchId, { managerId: user._id });
+      await Branch.findOneAndUpdate(
+        { _id: branchId, businessId: auth!.businessId },
+        { managerId: user._id }
+      );
     }
 
     const obj: any = user.toObject();

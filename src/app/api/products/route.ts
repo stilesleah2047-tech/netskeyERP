@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const auth = getAuth(req);
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const products = await Product.find({ isActive: true }).sort({ sortOrder: 1 }).lean();
+  const products = await Product.find({ businessId: auth.businessId, isActive: true }).sort({ sortOrder: 1 }).lean();
   return NextResponse.json({ products });
 }
 
@@ -37,6 +37,6 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }
-  const product = await Product.create(parsed.data);
+  const product = await Product.create({ ...parsed.data, businessId: auth!.businessId });
   return NextResponse.json({ product }, { status: 201 });
 }

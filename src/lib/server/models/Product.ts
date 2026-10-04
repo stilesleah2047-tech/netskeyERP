@@ -2,6 +2,7 @@ import { Schema, model, models, Model, Types, Document } from "mongoose";
 
 export interface IProduct extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this product belongs to
   label: string;
   sizeLiters: number;
   unit: string; // display unit, e.g. "L" for water, "pcs" / "tray" for eggs
@@ -15,6 +16,7 @@ export interface IProduct extends Document {
 
 const productSchema = new Schema<IProduct>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     label: { type: String, required: true, trim: true },
     sizeLiters: { type: Number, required: true, min: 0.1 },
     unit: { type: String, default: "L", trim: true },
@@ -31,6 +33,7 @@ export const Product =
 
 // Branch-specific price override — optional, falls back to Product.unitPrice.
 export interface IBranchPricing extends Document {
+  businessId: Types.ObjectId;
   branchId: Types.ObjectId;
   productId: Types.ObjectId;
   unitPrice: number;
@@ -39,6 +42,7 @@ export interface IBranchPricing extends Document {
 
 const branchPricingSchema = new Schema<IBranchPricing>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     unitPrice: { type: Number, required: true, min: 0 },

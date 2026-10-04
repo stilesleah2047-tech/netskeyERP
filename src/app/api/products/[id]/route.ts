@@ -30,7 +30,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  const product = await Product.findByIdAndUpdate(params.id, parsed.data, { new: true });
+  const product = await Product.findOneAndUpdate(
+    { _id: params.id, businessId: auth!.businessId },
+    parsed.data,
+    { new: true }
+  );
   if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
   return NextResponse.json({ product });
 }

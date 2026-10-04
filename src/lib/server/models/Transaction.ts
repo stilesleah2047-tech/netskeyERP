@@ -5,6 +5,7 @@ export type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
 
 export interface ITransaction extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this transaction belongs to
   branchId: Types.ObjectId;
   staffId: Types.ObjectId;
   customerName: string | null;
@@ -45,6 +46,7 @@ export interface ITransaction extends Document {
 
 const transactionSchema = new Schema<ITransaction>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     staffId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     customerName: { type: String, default: null, trim: true },
@@ -88,6 +90,7 @@ transactionSchema.index({ clientUuid: 1 }, { unique: true });
 // today" — a compound index serves that far better than the two single
 // indexes above combined.
 transactionSchema.index({ branchId: 1, createdAt: -1 });
+transactionSchema.index({ businessId: 1, createdAt: -1 });
 transactionSchema.index({ paymentStatus: 1 });
 
 export const Transaction =

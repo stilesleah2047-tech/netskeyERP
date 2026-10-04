@@ -197,7 +197,14 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="mt-6 text-center text-xs text-depth-400">
+        <p className="mt-6 text-center text-sm text-depth-500">
+          New here?{" "}
+          <a href="/signup" className="font-semibold text-flow-600 hover:text-flow-700">
+            Create a business account
+          </a>
+        </p>
+
+        <p className="mt-3 text-center text-xs text-depth-400">
           Water & eggs · multi-branch · one system.
         </p>
       </div>

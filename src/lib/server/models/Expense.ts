@@ -15,6 +15,7 @@ export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 export interface IExpense extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this expense belongs to
   branchId: Types.ObjectId;
   category: ExpenseCategory;
   amount: number;
@@ -28,6 +29,7 @@ export interface IExpense extends Document {
 
 const expenseSchema = new Schema<IExpense>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     category: { type: String, enum: EXPENSE_CATEGORIES, required: true },
     amount: { type: Number, required: true, min: 0 },

@@ -6,9 +6,10 @@ export const USER_ROLES: UserRole[] = ["DELIVERY", "BRANCH_MANAGER", "SUPER_ADMI
 
 export interface IUser extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this user belongs to
   name: string;
   role: UserRole;
-  branchId: Types.ObjectId | null; // null only valid for SUPER_ADMIN
+  branchId: Types.ObjectId | null; // null only valid for SUPER_ADMIN (business owner)
   phoneNumber: string; // E.164-ish normalized Kenyan format — kept for contact/M-Pesa reference, not used for login
   email: string; // login identifier for every role, via the single /login page
   passwordHash: string;
@@ -23,6 +24,7 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     name: { type: String, required: true, trim: true },
     role: { type: String, enum: USER_ROLES, required: true, default: "DELIVERY" },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", default: null },

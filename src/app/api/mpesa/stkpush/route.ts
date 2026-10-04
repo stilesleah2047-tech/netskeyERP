@@ -64,20 +64,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e.message }, { status: 400 });
   }
 
-  const product = await Product.findById(productId).lean();
+  const product = await Product.findOne({ _id: productId, businessId: auth!.businessId }).lean();
   if (!product || !product.isActive) {
     return NextResponse.json({ error: "Selected product is not available" }, { status: 400 });
   }
-  const override = await BranchPricing.findOne({ branchId, productId }).lean();
+  const override = await BranchPricing.findOne({ branchId, productId, businessId: auth!.businessId }).lean();
   const unitPrice = override?.unitPrice ?? product.unitPrice;
   const amount = Math.round(quantity * unitPrice * 100) / 100;
   if (amount <= 0) {
     return NextResponse.json({ error: "Invalid sale amount" }, { status: 400 });
   }
 
-  const branch = await Branch.findById(branchId).lean();
+  const branch = await Branch.findOne({ _id: branchId, businessId: auth!.businessId }).lean();
 
   const txn = await Transaction.create({
+    businessId: auth!.businessId,
     branchId,
     staffId: auth!.sub,
     customerName: customerName ?? null,

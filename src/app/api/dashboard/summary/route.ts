@@ -23,7 +23,10 @@ export async function GET(req: NextRequest) {
   const branchId = resolveBranchScope(auth, req.nextUrl.searchParams.get("branchId"));
   const { start, end } = todayRange();
 
-  const matchStage: Record<string, unknown> = { createdAt: { $gte: start, $lt: end } };
+  const matchStage: Record<string, unknown> = {
+    businessId: new mongoose.Types.ObjectId(auth.businessId),
+    createdAt: { $gte: start, $lt: end },
+  };
   if (branchId) matchStage.branchId = new mongoose.Types.ObjectId(branchId);
 
   const [totals] = await Transaction.aggregate([
@@ -66,7 +69,7 @@ export async function GET(req: NextRequest) {
   let branchRanking: any[] = [];
   if (!branchId) {
     branchRanking = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: start, $lt: end }, paymentStatus: "SUCCESS" } },
+      { $match: { businessId: new mongoose.Types.ObjectId(auth.businessId), createdAt: { $gte: start, $lt: end }, paymentStatus: "SUCCESS" } },
       {
         $group: {
           _id: "$branchId",

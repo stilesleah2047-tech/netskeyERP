@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { Expense, EXPENSE_CATEGORIES } from "@/lib/server/models/Expense";
+import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const scopeBranch = resolveBranchScope(auth, url.searchParams.get("branchId"));
 
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { businessId: auth.businessId };
   if (scopeBranch) filter.branchId = scopeBranch;
 
   const from = url.searchParams.get("from");
@@ -80,7 +81,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // The target branch MUST belong to this tenant.
+  const branch = await Branch.findOne({ _id: branchId, businessId: auth.businessId }).lean();
+  if (!branch) {
+    return NextResponse.json({ error: "Branch not found in your business" }, { status: 404 });
+  }
+
   const expense = await Expense.create({
+    businessId: auth.businessId,
     branchId,
     category: parsed.data.category,
     amount: parsed.data.amount,

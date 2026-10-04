@@ -2,6 +2,7 @@ import { Schema, model, models, Model, Types, Document } from "mongoose";
 
 export interface IBranch extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this branch belongs to
   branchName: string;
   locationCity: string;
   managerId: Types.ObjectId | null;
@@ -11,6 +12,7 @@ export interface IBranch extends Document {
 
 const branchSchema = new Schema<IBranch>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchName: { type: String, required: true, trim: true },
     locationCity: { type: String, required: true, trim: true },
     managerId: { type: Schema.Types.ObjectId, ref: "User", default: null },

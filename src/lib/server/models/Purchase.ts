@@ -5,6 +5,7 @@ import { Schema, model, models, Model, Types, Document } from "mongoose";
 // historical purchases never change when a product's price changes later.
 export interface IPurchase extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this purchase belongs to
   branchId: Types.ObjectId;
   supplierName: string;
   productId: Types.ObjectId | null;
@@ -21,6 +22,7 @@ export interface IPurchase extends Document {
 
 const purchaseSchema = new Schema<IPurchase>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     supplierName: { type: String, required: true, trim: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", default: null },

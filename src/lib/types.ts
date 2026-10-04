@@ -13,6 +13,8 @@ export interface AuthUser {
   id: string;
   name: string;
   role: UserRole;
+  businessId?: string;
+  businessName?: string | null;
   branchId: string | null;
   branchName?: string | null;
   phoneNumber?: string;

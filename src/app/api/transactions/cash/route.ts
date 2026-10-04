@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
 
   const { sales } = parsed.data;
   const productIds = Array.from(new Set(sales.map((s) => s.productId)));
-  const products = await Product.find({ _id: { $in: productIds } }).lean();
-  const overrides = await BranchPricing.find({ branchId, productId: { $in: productIds } }).lean();
+  const products = await Product.find({ _id: { $in: productIds }, businessId: auth!.businessId }).lean();
+  const overrides = await BranchPricing.find({ branchId, productId: { $in: productIds }, businessId: auth!.businessId }).lean();
   const productMap = new Map(products.map((p) => [p._id.toString(), p]));
   const overrideMap = new Map(overrides.map((o) => [o.productId.toString(), o.unitPrice]));
 
@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const created = await Transaction.create({
+        businessId: auth!.businessId,
         branchId,
         staffId: auth!.sub,
         customerName: sale.customerName ?? null,

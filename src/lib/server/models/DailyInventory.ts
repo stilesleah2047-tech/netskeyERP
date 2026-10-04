@@ -2,6 +2,7 @@ import { Schema, model, models, Model, Types, Document } from "mongoose";
 
 export interface IDailyInventory extends Document {
   _id: Types.ObjectId;
+  businessId: Types.ObjectId; // tenant this inventory row belongs to
   branchId: Types.ObjectId;
   productId: Types.ObjectId;
   date: string; // YYYY-MM-DD, branch-local calendar day — see note below
@@ -21,6 +22,7 @@ export interface IDailyInventory extends Document {
  */
 const dailyInventorySchema = new Schema<IDailyInventory>(
   {
+    businessId: { type: Schema.Types.ObjectId, ref: "Business", required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     date: { type: String, required: true },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { DailyInventory } from "@/lib/server/models/DailyInventory";
+import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
@@ -33,11 +34,15 @@ export async function POST(req: NextRequest) {
   const branchId = resolveBranchScope(auth!, parsed.data.branchId);
   if (!branchId) return NextResponse.json({ error: "branchId is required" }, { status: 400 });
 
+  // The branch MUST belong to this tenant.
+  const branch = await Branch.findOne({ _id: branchId, businessId: auth!.businessId }).lean();
+  if (!branch) return NextResponse.json({ error: "Branch not found in your business" }, { status: 404 });
+
   const date = parsed.data.date ?? todayLocal();
   const row = await DailyInventory.findOneAndUpdate(
     { branchId, productId: parsed.data.productId, date },
-    { eveningPhysicalCount: parsed.data.eveningPhysicalCount, recordedBy: auth!.sub },
-    { upsert: true, new: true }
+    { eveningPhysicalCount: parsed.data.eveningPhysicalCount, recordedBy: auth!.sub, businessId: auth!.businessId },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
   );
   return NextResponse.json({ inventory: row });
 }

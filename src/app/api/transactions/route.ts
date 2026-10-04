@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const branchId = resolveBranchScope(auth, req.nextUrl.searchParams.get("branchId"));
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 50, 200);
 
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { businessId: auth.businessId };
   if (branchId) filter.branchId = branchId;
 
   const startOfDay = new Date();

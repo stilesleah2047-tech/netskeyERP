@@ -3,6 +3,7 @@ import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { Purchase } from "@/lib/server/models/Purchase";
 import { Product } from "@/lib/server/models/Product";
+import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const scopeBranch = resolveBranchScope(auth, url.searchParams.get("branchId"));
 
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { businessId: auth.businessId };
   if (scopeBranch) filter.branchId = scopeBranch;
 
   const from = url.searchParams.get("from");
@@ -82,12 +83,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // The target branch MUST belong to this tenant.
+  const branchDoc = await Branch.findOne({ _id: branchId, businessId: auth.businessId }).lean();
+  if (!branchDoc) {
+    return NextResponse.json({ error: "Branch not found in your business" }, { status: 404 });
+  }
+
   // Resolve a human-readable product label snapshot. Prefer an explicit
   // productId lookup; fall back to a free-text label for ad-hoc items.
   let productLabel = parsed.data.productLabel ?? null;
   let productId: string | null = parsed.data.productId ?? null;
   if (productId) {
-    const product = await Product.findById(productId).lean();
+    const product = await Product.findOne({ _id: productId, businessId: auth.businessId }).lean();
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 400 });
     }
@@ -100,6 +107,7 @@ export async function POST(req: NextRequest) {
   const totalCost = parsed.data.quantity * parsed.data.unitCost;
 
   const purchase = await Purchase.create({
+    businessId: auth.businessId,
     branchId,
     supplierName: parsed.data.supplierName,
     productId,

@@ -2,14 +2,16 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/Toast";
 
-// We deliberately do NOT use `next/font/google` here. That loader downloads
-// fonts at build time, which fails in restricted build environments (e.g.
-// Render) with "Cannot read properties of null (reading '1')". Instead we
+// NOTE: We deliberately do NOT use `next/font/google` here. That loader
+// downloads the font files from Google at *build time*, which fails in
+// restricted CI/build environments (e.g. Render) with
+// "TypeError: Cannot read properties of null (reading '1')". Instead we
 // load the same fonts via a standard <link> at runtime. The matching CSS
-// variables live in globals.css, so the typography is unchanged.
+// variables (--font-display / --font-body / --font-mono) are declared in
+// globals.css, so the typography is unchanged.
 
 export const metadata: Metadata = {
-  title: "Vessel — Branch Delivery Console",
+  title: "Vessel \u2014 Branch Delivery Console",
   description: "Multi-branch 20L jerrycan delivery & payment operations",
 };
 

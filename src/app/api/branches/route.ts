@@ -13,11 +13,13 @@ export async function GET(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   if (auth.role === "SUPER_ADMIN") {
-    const branches = await Branch.find().sort({ branchName: 1 }).lean();
+    const branches = await Branch.find({ businessId: auth.businessId }).sort({ branchName: 1 }).lean();
     return NextResponse.json({ branches });
   }
   if (!auth.branchId) return NextResponse.json({ branches: [] });
-  const branch = await Branch.findById(auth.branchId).lean();
+  // Branch-scoped users still get filtered by businessId as a backstop,
+  // so a stale/forged branchId from another tenant can never resolve.
+  const branch = await Branch.findOne({ _id: auth.branchId, businessId: auth.businessId }).lean();
   return NextResponse.json({ branches: branch ? [branch] : [] });
 }
 
@@ -38,6 +40,6 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }
-  const branch = await Branch.create(parsed.data);
+  const branch = await Branch.create({ ...parsed.data, businessId: auth!.businessId });
   return NextResponse.json({ branch }, { status: 201 });
 }

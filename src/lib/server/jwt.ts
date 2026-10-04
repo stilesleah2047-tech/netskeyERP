@@ -5,6 +5,7 @@ import { UserRole } from "@/lib/server/models/User";
 
 export interface AccessTokenPayload {
   sub: string;
+  businessId: string; // tenant the user belongs to — scopes every query
   role: UserRole;
   branchId: string | null;
   deviceId: string;

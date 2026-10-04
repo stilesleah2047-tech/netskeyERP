@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const branchId = resolveBranchScope(auth, req.nextUrl.searchParams.get("branchId"));
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
-  const invMatch: Record<string, unknown> = { date };
+  const invMatch: Record<string, unknown> = { date, businessId: new mongoose.Types.ObjectId(auth.businessId) };
   if (branchId) invMatch.branchId = new mongoose.Types.ObjectId(branchId);
 
   const inventoryRows = await DailyInventory.aggregate([
@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
   dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
   const soldMatch: Record<string, unknown> = {
+    businessId: new mongoose.Types.ObjectId(auth.businessId),
     createdAt: { $gte: dayStart, $lt: dayEnd },
     paymentStatus: "SUCCESS",
   };
