@@ -6,13 +6,6 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { getDeviceId, getDeviceLabel } from "@/lib/deviceId";
 import VesselLogo from "@/components/ui/VesselLogo";
 
-/**
- * Owner self-signup — the entry point for a brand-new business (tenant).
- * Submitting creates the Business + the owner (SUPER_ADMIN), seeds a
- * default water/eggs catalog, and logs the owner straight into the admin
- * dashboard. From there the owner creates branches and branch managers;
- * branch managers in turn add delivery staff.
- */
 export default function SignupPage() {
   const router = useRouter();
   const [businessName, setBusinessName] = useState("");
@@ -58,7 +51,6 @@ export default function SignupPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-sand-50 px-4 py-10">
       <div className="w-full max-w-sm animate-fade-up">
-        {/* Brand lockup */}
         <div className="mb-8 flex items-center justify-center gap-2.5">
           <VesselLogo size={34} />
           <span className="font-display text-lg font-bold tracking-tight text-depth-900">
@@ -73,11 +65,11 @@ export default function SignupPage() {
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-depth-500">
             Set up your company account. You&apos;ll be the owner and can add branches
-            and branch managers next.
+            and branch managers next. Every new business starts with a free 14-day
+            trial on the Starter plan (KSh 3,500/mo after trial).
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-            {/* Business name */}
             <div>
               <label htmlFor="businessName" className="mb-1.5 block text-sm font-medium text-depth-700">
                 Business name
@@ -93,7 +85,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Owner name */}
             <div>
               <label htmlFor="ownerName" className="mb-1.5 block text-sm font-medium text-depth-700">
                 Your name
@@ -110,7 +101,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Email */}
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-depth-700">
                 Email
@@ -127,7 +117,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Phone */}
             <div>
               <label htmlFor="phoneNumber" className="mb-1.5 block text-sm font-medium text-depth-700">
                 Phone number
@@ -144,7 +133,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Password */}
             <div>
               <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-depth-700">
                 Password
@@ -199,7 +187,6 @@ export default function SignupPage() {
               </p>
             )}
 
-            {/* Primary CTA — copper gradient pill */}
             <button
               type="submit"
               disabled={loading}
@@ -209,7 +196,7 @@ export default function SignupPage() {
                 {loading && (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                 )}
-                {loading ? "Creating\u2026" : "Create business account"}
+                {loading ? "Creating…" : "Create business account"}
               </span>
             </button>
           </form>

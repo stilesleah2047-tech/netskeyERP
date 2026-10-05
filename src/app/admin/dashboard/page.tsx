@@ -133,9 +133,9 @@ export default function AdminDashboardPage() {
               onChange={setSelectedBranchId}
               isSuperAdmin={me.role === "SUPER_ADMIN"}
             />
-            {me.role === "SUPER_ADMIN" && (
-              <Link href="/admin/branches" className="tap-target flex items-center rounded-xl2 bg-white/10 px-4 text-sm font-medium text-white hover:bg-white/15">
-                Branches
+{me.isPlatformAdmin && (
+              <Link href="/platform" className="tap-target flex items-center rounded-xl2 bg-gradient-to-r from-flow-500 to-flow-700 px-4 text-sm font-semibold text-depth-950 hover:opacity-90">
+                Platform
               </Link>
             )}
             <Link href="/admin/products" className="tap-target flex items-center rounded-xl2 bg-white/10 px-4 text-sm font-medium text-white hover:bg-white/15">

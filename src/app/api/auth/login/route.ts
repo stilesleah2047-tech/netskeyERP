@@ -7,6 +7,7 @@ import { Branch } from "@/lib/server/models/Branch";
 import { Business } from "@/lib/server/models/Business";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
+import { isPlatformAdminEmail } from "@/lib/server/platform";
 import { getEnv } from "@/lib/server/env";
 
 export const runtime = "nodejs";
@@ -116,6 +117,7 @@ export async function POST(req: NextRequest) {
       email: user.email,
     },
     redirectTo: user.role === "DELIVERY" ? "/terminal" : "/admin/dashboard",
+    isPlatformAdmin: isPlatformAdminEmail(user.email),
   });
 
   res.cookies.set(ACCESS_COOKIE, accessToken, accessCookieOptions());

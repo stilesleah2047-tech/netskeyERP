@@ -21,6 +21,13 @@ export default function BranchesPage() {
   const [branchName, setBranchName] = useState("");
   const [locationCity, setLocationCity] = useState("");
 
+  // Optional: create the branch manager's login in the same step.
+  const [withManager, setWithManager] = useState(true);
+  const [mgrName, setMgrName] = useState("");
+  const [mgrEmail, setMgrEmail] = useState("");
+  const [mgrPhone, setMgrPhone] = useState("");
+  const [mgrPassword, setMgrPassword] = useState("");
+
   useEffect(() => {
     (async () => {
       try {
@@ -58,15 +65,45 @@ export default function BranchesPage() {
       return;
     }
 
+    const body: Record<string, unknown> = {
+      branchName: branchName.trim(),
+      locationCity: locationCity.trim(),
+    };
+
+    if (withManager) {
+      if (!mgrName.trim() || !mgrEmail.trim() || !mgrPhone.trim() || !mgrPassword) {
+        setError("Fill in the manager's name, email, phone and password — or switch off the manager login.");
+        return;
+      }
+      if (mgrPassword.length < 8) {
+        setError("The manager password must be at least 8 characters.");
+        return;
+      }
+      body.manager = {
+        name: mgrName.trim(),
+        email: mgrEmail.trim(),
+        phoneNumber: mgrPhone.trim(),
+        password: mgrPassword,
+      };
+    }
+
     setSaving(true);
     try {
       await apiFetch("/api/branches", {
         method: "POST",
-        body: JSON.stringify({ branchName: branchName.trim(), locationCity: locationCity.trim() }),
+        body: JSON.stringify(body),
       });
-      show(branchName.trim() + " created", "success");
+      if (withManager) {
+        show(branchName.trim() + " created with manager login for " + mgrEmail.trim(), "success");
+      } else {
+        show(branchName.trim() + " created", "success");
+      }
       setBranchName("");
       setLocationCity("");
+      setMgrName("");
+      setMgrEmail("");
+      setMgrPhone("");
+      setMgrPassword("");
       await loadBranches();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Could not create branch";
@@ -186,6 +223,81 @@ export default function BranchesPage() {
                 className="tap-target w-full rounded-xl border border-depth-200 px-3"
               />
             </div>
+          </div>
+
+          <div className="mt-4 rounded-xl2 border border-depth-100 bg-sand-50 p-4">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={withManager}
+                onChange={(e) => setWithManager(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-depth-300"
+              />
+              <span>
+                <span className="block font-medium text-depth-900">
+                  Create this branch&apos;s manager login now
+                </span>
+                <span className="block text-xs text-depth-500">
+                  The manager signs in with this email &amp; password, then adds their own delivery
+                  staff. You can leave this off and assign a manager later from Staff.
+                </span>
+              </span>
+            </label>
+
+            {withManager && (
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600" htmlFor="mgr-name">
+                    Manager name
+                  </label>
+                  <input
+                    id="mgr-name"
+                    value={mgrName}
+                    onChange={(e) => setMgrName(e.target.value)}
+                    placeholder="e.g. Jane Wambui"
+                    className="tap-target w-full rounded-xl border border-depth-200 bg-white px-3"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600" htmlFor="mgr-phone">
+                    Manager phone
+                  </label>
+                  <input
+                    id="mgr-phone"
+                    value={mgrPhone}
+                    onChange={(e) => setMgrPhone(e.target.value)}
+                    placeholder="e.g. 0712 345 678"
+                    className="tap-target w-full rounded-xl border border-depth-200 bg-white px-3"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600" htmlFor="mgr-email">
+                    Manager email (login)
+                  </label>
+                  <input
+                    id="mgr-email"
+                    type="email"
+                    value={mgrEmail}
+                    onChange={(e) => setMgrEmail(e.target.value)}
+                    placeholder="manager@business.co.ke"
+                    className="tap-target w-full rounded-xl border border-depth-200 bg-white px-3"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600" htmlFor="mgr-password">
+                    Temporary password
+                  </label>
+                  <input
+                    id="mgr-password"
+                    type="text"
+                    value={mgrPassword}
+                    onChange={(e) => setMgrPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    className="tap-target w-full rounded-xl border border-depth-200 bg-white px-3"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <button
             type="submit"

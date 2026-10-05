@@ -10,21 +10,10 @@ import { UserSession } from "@/lib/server/models/UserSession";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
+import { DEFAULT_TIER, TRIAL_DAYS } from "@/lib/tiers";
 
 export const runtime = "nodejs";
 
-/**
- * Owner self-signup — the ONLY way a new tenant (Business) enters the
- * system. It atomically:
- *   1. creates the Business,
- *   2. creates the owner as a SUPER_ADMIN (branchId = null) bound to it,
- *   3. seeds a default water + eggs product catalog scoped to the business,
- *   4. logs the owner straight in (session + cookies), same as /login.
- *
- * Branches and branch managers are created LATER by the owner from the
- * admin UI; delivery staff are then added by branch managers. Signup only
- * bootstraps the tenant and its first user.
- */
 const signupSchema = z.object({
   businessName: z.string().min(2).max(120),
   ownerName: z.string().min(2).max(120),
@@ -63,9 +52,6 @@ export async function POST(req: NextRequest) {
 
   const lowerEmail = email.toLowerCase();
 
-  // Email + phone are globally unique across all tenants (login is by
-  // email alone, with no tenant selector), so reject collisions early
-  // with a friendly message rather than a raw duplicate-key error.
   const emailTaken = await User.findOne({ email: lowerEmail }).lean();
   if (emailTaken) {
     return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
@@ -77,14 +63,18 @@ export async function POST(req: NextRequest) {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  // Create owner first (with a temporary businessId), then the business,
-  // then point the owner at the real business id and persist. This avoids
-  // a chicken-and-egg between User.businessId (required) and
-  // Business.ownerId (required).
   const ownerId = new mongoose.Types.ObjectId();
   const businessId = new mongoose.Types.ObjectId();
 
-  const business = new Business({ _id: businessId, name: businessName.trim(), ownerId });
+  const business = new Business({
+    _id: businessId,
+    name: businessName.trim(),
+    ownerId,
+    tier: DEFAULT_TIER,
+    subscriptionStatus: "TRIALING",
+    trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+    currentPeriodEnd: null,
+  });
   const owner = new User({
     _id: ownerId,
     businessId,
@@ -100,8 +90,6 @@ export async function POST(req: NextRequest) {
     await business.save();
     await owner.save();
   } catch (e) {
-    // Roll back a partial create so a failed signup never leaves an
-    // orphaned business or user behind.
     await Business.deleteOne({ _id: businessId }).catch(() => {});
     await User.deleteOne({ _id: ownerId }).catch(() => {});
     const msg = (e as Error).message || "";
@@ -111,10 +99,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not create your business. Please try again." }, { status: 500 });
   }
 
-  // Seed the default catalog for the new tenant.
   await Product.insertMany(DEFAULT_CATALOG.map((p) => ({ ...p, businessId })));
 
-  // Auto-login: create the session + issue cookies, exactly like /login.
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
   const expiresAt = new Date(Date.now() + refreshTtlMs());

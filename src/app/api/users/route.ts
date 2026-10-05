@@ -6,6 +6,7 @@ import { User } from "@/lib/server/models/User";
 import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
+import { userLimitError, loadTier } from "@/lib/server/subscription";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,6 @@ export async function GET(req: NextRequest) {
   }
 
   const branchId = resolveBranchScope(auth!, req.nextUrl.searchParams.get("branchId"));
-  // businessId is the hard tenant boundary; branchId narrows within it.
   const filter: Record<string, unknown> = { businessId: auth!.businessId };
   if (branchId) filter.branchId = branchId;
   const users = await User.find(filter).select("-passwordHash").sort({ name: 1 }).lean();
@@ -62,9 +62,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "branchId is required for this role" }, { status: 400 });
   }
 
-  // Any branch supplied (by a SUPER_ADMIN creating a manager/staff for a
-  // specific branch) MUST belong to this business — otherwise a crafted
-  // branchId from another tenant could attach a user cross-tenant.
   if (branchId) {
     const branch = await Branch.findOne({ _id: branchId, businessId: auth!.businessId }).lean();
     if (!branch) {
@@ -78,6 +75,11 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
   }
+
+  // Enforce the plan's user cap (counts owner + managers + staff).
+  const tier = await loadTier(auth!.businessId);
+  const userErr = await userLimitError(auth!.businessId, tier);
+  if (userErr) return NextResponse.json({ error: userErr }, { status: 403 });
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 

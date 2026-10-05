@@ -19,6 +19,7 @@ export interface AuthUser {
   branchName?: string | null;
   phoneNumber?: string;
   email?: string | null;
+  isPlatformAdmin?: boolean;
 }
 
 export interface Product {
