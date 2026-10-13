@@ -6,13 +6,10 @@ import { connectDb } from "@/lib/server/db";
 import { Invite, INVITE_TTL_DAYS } from "@/lib/server/models/Invite";
 import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, requireRole } from "@/lib/server/auth";
+import { hashToken } from "@/lib/server/invites";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export function hashToken(raw: string): string {
-  return crypto.createHash("sha256").update(raw).digest("hex");
-}
 
 // GET /api/invites — pending (unaccepted, unexpired) invites for this business.
 // Managers see only their own branch's invites.

@@ -21,7 +21,7 @@ import {
   accessCookieOptions,
   refreshCookieOptions,
 } from "@/lib/server/auth";
-import { hashToken } from "@/app/api/invites/route";
+import { hashToken } from "@/lib/server/invites";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
