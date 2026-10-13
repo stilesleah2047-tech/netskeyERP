@@ -209,6 +209,14 @@ export default function BranchesPage() {
                         <p className="text-xs text-depth-500">{b.locationCity}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
+                        {!inactive && (
+                          <Link
+                            href={`/admin/branches/${b._id}/prices`}
+                            className="rounded-lg border border-depth-200 px-3 py-1.5 text-sm font-medium text-depth-700 hover:border-flow-500 hover:text-flow-600"
+                          >
+                            Prices
+                          </Link>
+                        )}
                         <span
                           className={
                             "rounded-full px-2.5 py-1 text-xs font-medium " +

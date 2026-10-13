@@ -5,6 +5,7 @@ import { Purchase } from "@/lib/server/models/Purchase";
 import { Product } from "@/lib/server/models/Product";
 import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { recordInbound } from "@/lib/server/stock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,6 +120,23 @@ export async function POST(req: NextRequest) {
     notes: parsed.data.notes ?? null,
     recordedBy: auth.sub,
   });
+
+  // Add the bought units to the stock ledger as a FIFO cost layer. Ad-hoc
+  // purchases that reference only a free-text label (no catalog product) are
+  // business records but not trackable stock, so they are skipped here.
+  if (productId) {
+    await recordInbound({
+      businessId: auth.businessId,
+      branchId: branchId!,
+      productId,
+      type: "PURCHASE",
+      quantity: parsed.data.quantity,
+      unitCost: parsed.data.unitCost,
+      relatedType: "PURCHASE",
+      relatedId: purchase._id,
+      createdBy: auth.sub,
+    });
+  }
 
   return NextResponse.json({ purchase }, { status: 201 });
 }

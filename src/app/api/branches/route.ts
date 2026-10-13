@@ -67,13 +67,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: (e as Error).message }, { status: 400 });
     }
     const lowerEmail = manager.email.toLowerCase();
-    const emailTaken = await User.findOne({ email: lowerEmail }).lean();
+    // Uniqueness is per-business now, so only check within THIS tenant.
+    const emailTaken = await User.findOne({ businessId, email: lowerEmail }).lean();
     if (emailTaken) {
-      return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
+      return NextResponse.json({ error: "A user with this email already exists in your business." }, { status: 409 });
     }
-    const phoneTaken = await User.findOne({ phoneNumber: managerPhone }).lean();
+    const phoneTaken = await User.findOne({ businessId, phoneNumber: managerPhone }).lean();
     if (phoneTaken) {
-      return NextResponse.json({ error: "An account with this phone number already exists." }, { status: 409 });
+      return NextResponse.json({ error: "A user with this phone number already exists in your business." }, { status: 409 });
     }
   }
 

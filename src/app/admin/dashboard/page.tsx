@@ -146,6 +146,9 @@ export default function AdminDashboardPage() {
             <Link href="/admin/products" className="tap-target flex items-center rounded-xl2 bg-white/10 px-4 text-sm font-medium text-white hover:bg-white/15">
               Sizes
             </Link>
+            <Link href="/admin/stock" className="tap-target flex items-center rounded-xl2 bg-white/10 px-4 text-sm font-medium text-white hover:bg-white/15">
+              Stock
+            </Link>
             <Link href="/admin/staff" className="tap-target flex items-center rounded-xl2 bg-white/10 px-4 text-sm font-medium text-white hover:bg-white/15">
               Staff
             </Link>

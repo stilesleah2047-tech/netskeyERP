@@ -20,6 +20,15 @@ interface StaffMember {
   isActive: boolean;
 }
 
+interface PendingInvite {
+  id: string;
+  role: UserRole;
+  email: string | null;
+  branch: { _id: string; branchName: string } | string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
 const roleBadgeStyles: Record<UserRole, string> = {
   DELIVERY: "bg-depth-100 text-depth-700",
   BRANCH_MANAGER: "bg-flow-500/15 text-flow-700",
@@ -36,6 +45,14 @@ export default function StaffPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmSuperAdmin, setConfirmSuperAdmin] = useState(false);
+
+  // Staff invite links.
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const [invRole, setInvRole] = useState<UserRole>("DELIVERY");
+  const [invBranch, setInvBranch] = useState("");
+  const [invEmail, setInvEmail] = useState("");
+  const [invCreating, setInvCreating] = useState(false);
+  const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("DELIVERY");
@@ -62,6 +79,7 @@ export default function StaffPage() {
       const branchesResult = await apiFetch<{ branches: Branch[] }>("/api/branches");
       setBranches(branchesResult.branches);
       await loadStaff();
+      await loadInvites();
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,6 +88,68 @@ export default function StaffPage() {
   async function loadStaff() {
     const result = await apiFetch<{ users: StaffMember[] }>("/api/users");
     setStaff(result.users);
+  }
+
+  async function loadInvites() {
+    try {
+      const result = await apiFetch<{ invites: PendingInvite[] }>("/api/invites");
+      setInvites(result.invites);
+    } catch {
+      // non-fatal
+    }
+  }
+
+  async function handleCreateInvite(e: React.FormEvent) {
+    e.preventDefault();
+    const branch = isSuperAdmin ? invBranch : me?.branchId ?? "";
+    if (!branch) {
+      show("Choose which branch this invite is for.", "error");
+      return;
+    }
+    if (!invEmail.trim()) {
+      show("Enter the email the new member will sign in with.", "error");
+      return;
+    }
+    setInvCreating(true);
+    setNewInviteLink(null);
+    try {
+      const result = await apiFetch<{ acceptPath: string }>("/api/invites", {
+        method: "POST",
+        body: JSON.stringify({
+          role: isSuperAdmin ? invRole : "DELIVERY",
+          branchId: branch,
+          email: invEmail.trim() || undefined,
+        }),
+      });
+      const link =
+        (typeof window !== "undefined" ? window.location.origin : "") + result.acceptPath;
+      setNewInviteLink(link);
+      setInvEmail("");
+      show("Invite link created — copy and share it.", "success");
+      await loadInvites();
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not create invite", "error");
+    }
+    setInvCreating(false);
+  }
+
+  async function handleRevokeInvite(id: string) {
+    try {
+      await apiFetch("/api/invites/" + id, { method: "DELETE" });
+      show("Invite revoked", "success");
+      await loadInvites();
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not revoke invite", "error");
+    }
+  }
+
+  async function copyInviteLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      show("Link copied to clipboard", "success");
+    } catch {
+      show("Copy failed — select and copy the link manually", "info");
+    }
   }
 
   async function handleToggleActive(member: StaffMember) {
@@ -244,6 +324,123 @@ export default function StaffPage() {
               })}
             </ul>
           )}
+        </div>
+
+        <div className="rounded-xl2 bg-white shadow-soft">
+          <div className="border-b border-depth-100 px-4 py-3">
+            <h2 className="font-display font-semibold text-depth-900">Invite links</h2>
+            <p className="mt-1 text-xs text-depth-500">
+              Create a one-time link and share it (e.g. on WhatsApp). The person sets their own
+              password when they open it. Links expire after 7 days.
+            </p>
+          </div>
+
+          {newInviteLink && (
+            <div className="m-4 rounded-xl2 border border-confirm-500/30 bg-confirm-500/10 p-3">
+              <p className="mb-2 text-xs font-medium text-confirm-700">
+                Share this link now — it is shown only once:
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={newInviteLink}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="min-w-0 flex-1 rounded-lg border border-depth-200 bg-white px-2 py-1.5 text-xs text-depth-700"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyInviteLink(newInviteLink)}
+                  className="shrink-0 rounded-lg bg-flow-500 px-3 py-1.5 text-sm font-semibold text-depth-950"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {invites.length > 0 && (
+            <ul className="divide-y divide-depth-100">
+              {invites.map((i) => {
+                const branchName =
+                  typeof i.branch === "object" && i.branch ? i.branch.branchName : undefined;
+                return (
+                  <li key={i.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-depth-900">
+                        {i.email ?? "(no email set)"}
+                      </p>
+                      <p className="truncate text-xs text-depth-500">
+                        {i.role.replace("_", " ")}
+                        {branchName ? " · " + branchName : ""} · expires{" "}
+                        {new Date(i.expiresAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <ConfirmButton
+                      label="Revoke"
+                      confirmLabel="Revoke"
+                      variant="danger"
+                      onConfirm={() => handleRevokeInvite(i.id)}
+                      className="shrink-0 rounded-lg border border-depth-200 px-3 py-1.5 text-sm font-medium text-depth-700"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <form onSubmit={handleCreateInvite} className="border-t border-depth-100 p-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {isSuperAdmin && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600">Role</label>
+                  <select
+                    value={invRole}
+                    onChange={(e) => setInvRole(e.target.value as UserRole)}
+                    className="tap-target w-full rounded-xl border border-depth-200 px-3"
+                  >
+                    <option value="DELIVERY">Delivery</option>
+                    <option value="BRANCH_MANAGER">Branch Manager</option>
+                  </select>
+                </div>
+              )}
+              {isSuperAdmin && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-depth-600">Branch</label>
+                  <select
+                    value={invBranch}
+                    onChange={(e) => setInvBranch(e.target.value)}
+                    className="tap-target w-full rounded-xl border border-depth-200 px-3"
+                  >
+                    <option value="">Select a branch…</option>
+                    {branches.map((b) => (
+                      <option key={b._id} value={b._id}>
+                        {b.branchName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className={isSuperAdmin ? "sm:col-span-2" : ""}>
+                <label className="mb-1 block text-xs font-medium text-depth-600">
+                  Email (they sign in with this)
+                </label>
+                <input
+                  type="email"
+                  value={invEmail}
+                  onChange={(e) => setInvEmail(e.target.value)}
+                  placeholder="person@example.com"
+                  className="tap-target w-full rounded-xl border border-depth-200 px-3"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={invCreating}
+              className="tap-target mt-4 w-full rounded-xl2 border border-flow-500 font-display font-semibold text-flow-700 disabled:opacity-60 sm:w-auto sm:px-8"
+            >
+              {invCreating ? "Creating…" : "Create invite link"}
+            </button>
+          </form>
         </div>
 
         <form onSubmit={handleCreate} className="rounded-xl2 bg-white p-4 shadow-soft">

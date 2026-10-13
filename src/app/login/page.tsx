@@ -12,6 +12,11 @@ interface ActiveDevice {
   lastUsedAt: string;
 }
 
+interface BusinessChoice {
+  businessId: string;
+  businessName: string;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -21,24 +26,37 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceConflict, setDeviceConflict] = useState<ActiveDevice[] | null>(null);
+  // PER-BUSINESS IDENTITY: when one email+password unlocks accounts in more
+  // than one business, the server returns this list and we ask which to enter.
+  const [businessChoices, setBusinessChoices] = useState<BusinessChoice[] | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Shared login call. Pass a chosen businessId on the second step of the
+  // picker; leave it undefined for the first attempt.
+  async function attemptLogin(businessId?: string) {
     setError(null);
     setDeviceConflict(null);
     setLoading(true);
-
     try {
-      const result = await apiFetch<{ redirectTo: string }>("/api/auth/login", {
+      const result = await apiFetch<{
+        redirectTo?: string;
+        needsBusinessSelection?: boolean;
+        businesses?: BusinessChoice[];
+      }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({
           email,
           password,
           deviceId: getDeviceId(),
           deviceLabel: getDeviceLabel(),
+          ...(businessId ? { businessId } : {}),
         }),
       });
-      router.replace(result.redirectTo);
+      if (result.needsBusinessSelection && result.businesses) {
+        setBusinessChoices(result.businesses);
+        setLoading(false);
+        return;
+      }
+      if (result.redirectTo) router.replace(result.redirectTo);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setDeviceConflict((err.body?.activeDevices as ActiveDevice[]) ?? []);
@@ -50,6 +68,11 @@ export default function LoginPage() {
       }
     }
     setLoading(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await attemptLogin();
   }
 
   return (
@@ -70,7 +93,42 @@ export default function LoginPage() {
             Run every branch with confidence — sales, stock, M-Pesa and cash.
           </p>
 
-          {deviceConflict ? (
+          {businessChoices ? (
+            <div className="mt-8">
+              <p className="text-sm font-medium text-depth-700">
+                This email is used in more than one business. Choose which one to sign in to:
+              </p>
+              <ul className="mt-4 space-y-2">
+                {businessChoices.map((b) => (
+                  <li key={b.businessId}>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => attemptLogin(b.businessId)}
+                      className="tap-target flex w-full items-center justify-between rounded-xl2 border border-depth-200 bg-white px-4 py-3 text-left text-sm font-medium text-depth-800 transition hover:border-flow-500 hover:bg-flow-500/5 disabled:opacity-60"
+                    >
+                      <span>{b.businessName}</span>
+                      <span className="text-flow-600">→</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {error && (
+                <p role="alert" className="mt-3 rounded-lg bg-alert-500/10 px-3 py-2 text-sm text-alert-600">
+                  {error}
+                </p>
+              )}
+              <button
+                onClick={() => {
+                  setBusinessChoices(null);
+                  setError(null);
+                }}
+                className="tap-target mt-4 w-full rounded-full bg-depth-900 text-sm font-medium text-sand-50 transition hover:bg-depth-800"
+              >
+                Back
+              </button>
+            </div>
+          ) : deviceConflict ? (
             <div className="mt-8 rounded-xl2 border border-alert-500/30 bg-alert-500/10 p-4">
               <p className="text-sm font-medium text-alert-600">{error}</p>
               <ul className="mt-3 space-y-2">

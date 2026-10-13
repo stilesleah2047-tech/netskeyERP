@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDb } from "@/lib/server/db";
 import { Transaction } from "@/lib/server/models/Transaction";
 import { MpesaCallbackLog } from "@/lib/server/models/MpesaCallbackLog";
+import { recordOutbound } from "@/lib/server/stock";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,28 @@ export async function POST(req: NextRequest) {
   txn.mpesaDetails.resultDesc = resultDesc;
   txn.mpesaDetails.receiptNumber = mpesaReceiptNumber;
   await txn.save();
+
+  // Only a SUCCESSFUL M-Pesa payment represents real stock leaving the
+  // branch. We deduct here (not at STK-push time) so abandoned/failed
+  // prompts never touch stock. Guarded so a ledger error can't flip an
+  // already-paid sale back to unpaid.
+  if (newStatus === "SUCCESS") {
+    try {
+      await recordOutbound({
+        businessId: txn.businessId,
+        branchId: txn.branchId,
+        productId: txn.productId,
+        type: "SALE",
+        quantity: txn.quantity,
+        allowNegative: true,
+        relatedType: "TRANSACTION",
+        relatedId: txn._id,
+        createdBy: txn.staffId,
+      });
+    } catch {
+      // Non-fatal; backfill:stock can repair any ledger gap later.
+    }
+  }
 
   await MpesaCallbackLog.create({
     sourceIp,

@@ -28,8 +28,8 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     role: { type: String, enum: USER_ROLES, required: true, default: "DELIVERY" },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", default: null },
-    phoneNumber: { type: String, required: true, unique: true, index: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phoneNumber: { type: String, required: true, index: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
     isActive: { type: Boolean, default: true },
     failedLoginAttempts: { type: Number, default: 0 },
@@ -56,6 +56,15 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
   if (!this.passwordHash) return false;
   return bcrypt.compare(password, this.passwordHash);
 };
+
+// PER-BUSINESS IDENTITY: email and phone are unique only WITHIN a business,
+// not across the whole platform. Two different water companies may each have
+// a staff member whose email is "john@gmail.com". Login disambiguates by
+// business (see /api/auth/login). The old platform-wide single-field unique
+// indexes on email/phoneNumber are replaced by these compound ones; run
+// `npm run migrate:identity` once to drop the old indexes and build these.
+userSchema.index({ businessId: 1, email: 1 }, { unique: true });
+userSchema.index({ businessId: 1, phoneNumber: 1 }, { unique: true });
 
 export const User =
   (models.User as Model<IUser>) || model<IUser>("User", userSchema);

@@ -5,6 +5,7 @@ import { Transaction } from "@/lib/server/models/Transaction";
 import { Product, BranchPricing } from "@/lib/server/models/Product";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
+import { recordOutbound } from "@/lib/server/stock";
 
 export const runtime = "nodejs";
 
@@ -81,6 +82,26 @@ export async function POST(req: NextRequest) {
         clientSubmittedAt: sale.clientSubmittedAt ? new Date(sale.clientSubmittedAt) : null,
       });
       inserted.push(created);
+      // Draw the sold units out of the stock ledger (FIFO). Sales are NEVER
+      // blocked by stock, so this is allowed to drive on-hand negative — a
+      // negative figure is the signal to reconcile, not a reason to refuse
+      // the sale that already happened in the field.
+      try {
+        await recordOutbound({
+          businessId: auth!.businessId,
+          branchId,
+          productId: product._id,
+          type: "SALE",
+          quantity: sale.quantity,
+          allowNegative: true,
+          relatedType: "TRANSACTION",
+          relatedId: created._id,
+          createdBy: auth!.sub,
+        });
+      } catch {
+        // The sale itself is committed; a ledger hiccup must not fail it.
+        // A backfill (npm run backfill:stock) can repair ledger gaps.
+      }
     } catch (err: any) {
       if (err?.code === 11000) continue;
       rejected.push({ clientUuid: sale.clientUuid, error: "Could not save this sale" });

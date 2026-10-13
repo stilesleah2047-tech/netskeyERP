@@ -10,6 +10,7 @@ import { UserSession } from "@/lib/server/models/UserSession";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
+import { isPlatformAdminEmail } from "@/lib/server/platform";
 import { DEFAULT_TIER, TRIAL_DAYS } from "@/lib/tiers";
 
 export const runtime = "nodejs";
@@ -52,13 +53,18 @@ export async function POST(req: NextRequest) {
 
   const lowerEmail = email.toLowerCase();
 
-  const emailTaken = await User.findOne({ email: lowerEmail }).lean();
-  if (emailTaken) {
-    return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
-  }
-  const phoneTaken = await User.findOne({ phoneNumber: normalizedPhone }).lean();
-  if (phoneTaken) {
-    return NextResponse.json({ error: "An account with this phone number already exists." }, { status: 409 });
+  // PER-BUSINESS IDENTITY: email/phone are unique only within a business, so
+  // signing up a BRAND-NEW business can never collide with another tenant.
+  // We therefore no longer probe whether the email/phone exists elsewhere —
+  // that both avoids leaking "this email is registered somewhere" and lets
+  // the same person legitimately own/belong to more than one business.
+  // The only hard rule: a platform-operator email cannot be claimed through
+  // public signup.
+  if (isPlatformAdminEmail(lowerEmail)) {
+    return NextResponse.json(
+      { error: "This email cannot be used to register a business." },
+      { status: 409 }
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
