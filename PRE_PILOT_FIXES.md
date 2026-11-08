@@ -66,3 +66,39 @@ automatically (IndexedDB v1 -> v2) the next time the terminal opens.
 - Atomic signup transaction, email verification, distributed rate limiting.
 - Live cross-tenant integration tests against MongoDB (needs a test database).
 - The end-to-end flows in the test report still need re-running on a two-branch tenant.
+
+## Business accounts are operator-only
+
+Public signup is closed. `/api/auth/signup` has been removed and `/signup`
+now explains that accounts are by invitation.
+
+To add a business, a platform admin (an email in `PLATFORM_ADMIN_EMAILS`)
+opens the Platform Command Center and fills in **Create a business**
+(business name, owner's email, plan). This creates the business with the
+default catalogue and returns a one-time owner link, valid for 7 days.
+The owner opens the link and sets their own name, phone and password; they
+become the business's owner of record. If the link expires or is lost,
+**New owner link** issues a fresh one and cancels the old one.
+
+`npm test` includes checks that no public signup API exists, that only the
+platform route creates businesses, and that every platform handler requires
+a platform admin.
+
+## Admin console (`/platform`)
+
+Platform admins are sent straight to `/platform` after signing in. It has
+three tabs:
+
+- **Overview** – platform-wide sales today / 7 / 30 days, MRR, counts, a
+  14-day sales chart, a "Needs attention" list (trials ending, unpaid or past
+  due, owners who have not joined, businesses with no sales for 7 days, price
+  mismatches, rejected M-Pesa callbacks) and a per-business activity table.
+  Refreshes every minute.
+- **Businesses** – create a business (owner invite link), change plan or
+  status, mark paid, suspend/reactivate, issue a new owner link.
+- **Activity** – the audit log across all businesses, filterable by business.
+
+Clicking any business opens a detail panel: branches with 30-day sales,
+everyone in the business with when they were last seen, pending invites and
+the 25 most recent sales. APIs: `/api/platform/overview`,
+`/api/platform/activity`, `GET /api/platform/businesses/[id]`.

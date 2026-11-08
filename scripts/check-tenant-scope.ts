@@ -20,11 +20,11 @@ const ALLOW: Record<string, string> = {
   "auth/sessions/[deviceId]/route.ts": "scoped by userId (the caller's own sessions)",
   "auth/refresh/route.ts": "scoped by refresh-token hash",
   "auth/login/route.ts": "pre-authentication",
-  "auth/signup/route.ts": "creates a new tenant",
   "health/route.ts": "no data",
   "mpesa/callback/route.ts": "server-to-server; matched by CheckoutRequestID, authenticated by secret/IP",
   "platform/businesses/route.ts": "platform-operator console (requirePlatformAdmin)",
   "platform/businesses/[id]/route.ts": "platform-operator console (requirePlatformAdmin)",
+  "platform/businesses/[id]/owner-invite/route.ts": "platform-operator console (requirePlatformAdmin)",
   "invites/accept/route.ts": "scoped by invite token, which carries the businessId",
 };
 
