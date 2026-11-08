@@ -83,3 +83,22 @@ become the business's owner of record. If the link expires or is lost,
 `npm test` includes checks that no public signup API exists, that only the
 platform route creates businesses, and that every platform handler requires
 a platform admin.
+
+## Admin console (`/platform`)
+
+Platform admins are sent straight to `/platform` after signing in. It has
+three tabs:
+
+- **Overview** – platform-wide sales today / 7 / 30 days, MRR, counts, a
+  14-day sales chart, a "Needs attention" list (trials ending, unpaid or past
+  due, owners who have not joined, businesses with no sales for 7 days, price
+  mismatches, rejected M-Pesa callbacks) and a per-business activity table.
+  Refreshes every minute.
+- **Businesses** – create a business (owner invite link), change plan or
+  status, mark paid, suspend/reactivate, issue a new owner link.
+- **Activity** – the audit log across all businesses, filterable by business.
+
+Clicking any business opens a detail panel: branches with 30-day sales,
+everyone in the business with when they were last seen, pending invites and
+the 25 most recent sales. APIs: `/api/platform/overview`,
+`/api/platform/activity`, `GET /api/platform/businesses/[id]`.

@@ -102,7 +102,12 @@ async function finalizeLogin(
       phoneNumber: user.phoneNumber,
       email: user.email,
     },
-    redirectTo: user.role === "DELIVERY" ? "/terminal" : "/admin/dashboard",
+    // The platform operator lands on the admin console, not a business screen.
+    redirectTo: isPlatformAdminEmail(user.email)
+      ? "/platform"
+      : user.role === "DELIVERY"
+        ? "/terminal"
+        : "/admin/dashboard",
     isPlatformAdmin: isPlatformAdminEmail(user.email),
   });
 
