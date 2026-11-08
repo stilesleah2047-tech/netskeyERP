@@ -4,7 +4,7 @@ import { connectDb } from "@/lib/server/db";
 import { Purchase } from "@/lib/server/models/Purchase";
 import { Product } from "@/lib/server/models/Product";
 import { Branch } from "@/lib/server/models/Branch";
-import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
 import { recordInbound } from "@/lib/server/stock";
 
 export const runtime = "nodejs";
@@ -15,6 +15,11 @@ export async function GET(req: NextRequest) {
   await connectDb();
   const auth = getAuth(req);
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  // Owner/manager data only — cashiers (DELIVERY) must not read or write
+  // costs, expenses or profit (PRD 5.1 / pre-pilot review section 5).
+  if (!requireRole(auth, "SUPER_ADMIN", "BRANCH_MANAGER")) {
+    return NextResponse.json({ error: "You do not have access to this" }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const scopeBranch = resolveBranchScope(auth, url.searchParams.get("branchId"));
@@ -60,6 +65,11 @@ export async function POST(req: NextRequest) {
   await connectDb();
   const auth = getAuth(req);
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  // Owner/manager data only — cashiers (DELIVERY) must not read or write
+  // costs, expenses or profit (PRD 5.1 / pre-pilot review section 5).
+  if (!requireRole(auth, "SUPER_ADMIN", "BRANCH_MANAGER")) {
+    return NextResponse.json({ error: "You do not have access to this" }, { status: 403 });
+  }
 
   const json = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(json);

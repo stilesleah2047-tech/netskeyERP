@@ -7,6 +7,7 @@ import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
 import { initiateStkPush } from "@/lib/server/mpesa";
+import { mpesaEnabled } from "@/lib/server/mpesaGuard";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,9 @@ function rateLimited(key: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  if (!mpesaEnabled()) {
+    return NextResponse.json({ error: "M-Pesa payments are not enabled for this pilot. Record a cash sale instead." }, { status: 503 });
+  }
   await connectDb();
   const auth = getAuth(req);
   if (!requireRole(auth, "DELIVERY", "BRANCH_MANAGER")) {

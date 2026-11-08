@@ -1,4 +1,5 @@
 import axios from "axios";
+import { callbackUrlWithSecret } from "@/lib/server/mpesaGuard";
 import { getEnv } from "@/lib/server/env";
 
 function baseUrl(): string {
@@ -76,7 +77,7 @@ export async function initiateStkPush(params: StkPushParams): Promise<StkPushRes
     PartyA: params.phone,
     PartyB: env.DARAJA_SHORTCODE,
     PhoneNumber: params.phone,
-    CallBackURL: env.DARAJA_CALLBACK_URL,
+    CallBackURL: callbackUrlWithSecret(env.DARAJA_CALLBACK_URL),
     AccountReference: params.accountReference.slice(0, 12),
     TransactionDesc: params.transactionDesc.slice(0, 13),
   };

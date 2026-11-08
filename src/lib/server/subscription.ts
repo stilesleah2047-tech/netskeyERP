@@ -9,6 +9,7 @@ import { Branch } from "@/lib/server/models/Branch";
 import { User } from "@/lib/server/models/User";
 import { Business, IBusiness } from "@/lib/server/models/Business";
 import {
+  isUsable,
   TIERS,
   effectiveMaxBranches,
   type TierId,
@@ -85,4 +86,21 @@ export async function loadPlan(businessId: Types.ObjectId | string): Promise<Bus
 // Also count only live users toward the user cap (deactivated staff free a slot).
 export async function liveUserCount(businessId: Types.ObjectId | string): Promise<number> {
   return User.countDocuments({ businessId, isActive: { $ne: false } });
+}
+
+/**
+ * Why this business may not be used right now, or null if it may.
+ * Checked at login, token refresh and /api/auth/me so a SUSPENDED or
+ * deactivated tenant is locked out within one access-token lifetime
+ * (pre-pilot review 1.5). Platform admins manage tenants from /platform and
+ * are not affected by their own tenant's status.
+ */
+export async function businessBlockReason(businessId: string | { toString(): string }): Promise<string | null> {
+  const business = await Business.findById(businessId.toString()).select("isActive subscriptionStatus").lean();
+  if (!business) return "This business no longer exists.";
+  if (business.isActive === false) return "This business account has been deactivated. Contact support.";
+  if (!isUsable(business.subscriptionStatus as any)) {
+    return "This business account is suspended. Contact support to restore access.";
+  }
+  return null;
 }

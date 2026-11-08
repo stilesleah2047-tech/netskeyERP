@@ -8,6 +8,7 @@ import { Business } from "@/lib/server/models/Business";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
 import { isPlatformAdminEmail } from "@/lib/server/platform";
+import { businessBlockReason } from "@/lib/server/subscription";
 import { getEnv } from "@/lib/server/env";
 
 export const runtime = "nodejs";
@@ -59,6 +60,13 @@ async function finalizeLogin(
         { status: 409 }
       );
     }
+  }
+
+  // Suspended or deactivated businesses cannot sign in. Platform admins are
+  // exempt so the operator can always reach the console to restore access.
+  if (!isPlatformAdminEmail(user.email)) {
+    const blocked = await businessBlockReason(user.businessId);
+    if (blocked) return NextResponse.json({ error: blocked }, { status: 403 });
   }
 
   const refreshToken = generateRefreshToken();

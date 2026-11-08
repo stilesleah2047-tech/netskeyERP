@@ -3,16 +3,15 @@ import mongoose from "mongoose";
 import { connectDb } from "@/lib/server/db";
 import { Transaction } from "@/lib/server/models/Transaction";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { businessDayRange } from "@/lib/server/businessDay";
+import { isObjectId } from "@/lib/server/ids";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// "Today" is the Africa/Nairobi business day, not the server's UTC day.
 function todayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
+  return businessDayRange();
 }
 
 export async function GET(req: NextRequest) {
@@ -21,6 +20,9 @@ export async function GET(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const branchId = resolveBranchScope(auth, req.nextUrl.searchParams.get("branchId"));
+  if (branchId && !isObjectId(branchId)) {
+    return NextResponse.json({ error: "Invalid branchId" }, { status: 400 });
+  }
   const { start, end } = todayRange();
 
   const matchStage: Record<string, unknown> = {

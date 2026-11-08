@@ -3,12 +3,17 @@ import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { DailyInventory } from "@/lib/server/models/DailyInventory";
 import { Branch } from "@/lib/server/models/Branch";
+import { Product } from "@/lib/server/models/Product";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
+import { businessDate } from "@/lib/server/businessDay";
+import { isObjectId } from "@/lib/server/ids";
+import { audit } from "@/lib/server/audit";
 
 export const runtime = "nodejs";
 
+// Africa/Nairobi business day, not the server's UTC date.
 function todayLocal(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDate();
 }
 
 const countSchema = z.object({
@@ -38,7 +43,29 @@ export async function POST(req: NextRequest) {
   const branch = await Branch.findOne({ _id: branchId, businessId: auth!.businessId }).lean();
   if (!branch) return NextResponse.json({ error: "Branch not found in your business" }, { status: 404 });
 
+  // The product must belong to this tenant too (pre-pilot review 1.2).
+  if (!isObjectId(parsed.data.productId)) {
+    return NextResponse.json({ error: "Invalid productId" }, { status: 400 });
+  }
+  const product = await Product.findOne({ _id: parsed.data.productId, businessId: auth!.businessId }).select("_id").lean();
+  if (!product) return NextResponse.json({ error: "Product not found in your business" }, { status: 404 });
+
   const date = parsed.data.date ?? todayLocal();
+  // Overwriting a past count is allowed (corrections happen) but is recorded
+  // in the audit log with the previous value, so nothing changes silently.
+  const previous = await DailyInventory.findOne({ branchId, productId: parsed.data.productId, date })
+    .select("eveningPhysicalCount")
+    .lean();
+  if (previous && (previous as any).eveningPhysicalCount != null && (previous as any).eveningPhysicalCount !== parsed.data.eveningPhysicalCount) {
+    await audit({
+      businessId: auth!.businessId,
+      actorId: auth!.sub,
+      action: "inventory.eveningPhysicalCount.overwrite",
+      targetType: "DailyInventory",
+      targetId: (previous as any)._id,
+      details: { date, branchId, productId: parsed.data.productId, from: (previous as any).eveningPhysicalCount, to: parsed.data.eveningPhysicalCount },
+    });
+  }
   const row = await DailyInventory.findOneAndUpdate(
     { branchId, productId: parsed.data.productId, date },
     { eveningPhysicalCount: parsed.data.eveningPhysicalCount, recordedBy: auth!.sub, businessId: auth!.businessId },

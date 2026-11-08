@@ -3,7 +3,9 @@ import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { Branch } from "@/lib/server/models/Branch";
 import { User } from "@/lib/server/models/User";
+import { UserSession } from "@/lib/server/models/UserSession";
 import { getAuth, requireRole } from "@/lib/server/auth";
+import { audit } from "@/lib/server/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +50,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       { businessId: auth!.businessId, branchId: branch._id, role: { $ne: "SUPER_ADMIN" } },
       { isActive: false }
     );
+    const staff = await User.find({ businessId: auth!.businessId, branchId: branch._id, role: { $ne: "SUPER_ADMIN" } })
+      .select("_id")
+      .lean();
+    await UserSession.deleteMany({ userId: { $in: staff.map((u) => u._id) } });
   }
+
+  await audit({
+    businessId: auth!.businessId,
+    actorId: auth!.sub,
+    action: parsed.data.isActive ? "branch.reactivate" : "branch.deactivate",
+    targetType: "Branch",
+    targetId: branch._id,
+  });
 
   return NextResponse.json({ branch });
 }

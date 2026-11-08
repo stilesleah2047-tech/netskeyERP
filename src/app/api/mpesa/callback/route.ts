@@ -3,6 +3,7 @@ import { connectDb } from "@/lib/server/db";
 import { Transaction } from "@/lib/server/models/Transaction";
 import { MpesaCallbackLog } from "@/lib/server/models/MpesaCallbackLog";
 import { recordOutbound } from "@/lib/server/stock";
+import { checkCallbackAuth } from "@/lib/server/mpesaGuard";
 
 export const runtime = "nodejs";
 
@@ -12,11 +13,6 @@ function getSourceIp(req: NextRequest): string {
   return "unknown";
 }
 
-function isIpAllowed(ip: string): boolean {
-  const allowlist = process.env.DARAJA_CALLBACK_IP_ALLOWLIST;
-  if (!allowlist) return true;
-  return allowlist.split(",").map((s) => s.trim()).includes(ip);
-}
 
 export async function POST(req: NextRequest) {
   await connectDb();
@@ -40,13 +36,14 @@ export async function POST(req: NextRequest) {
   const resultCode: number | undefined = callback?.ResultCode;
   const resultDesc: string = callback?.ResultDesc ?? "";
 
-  if (!isIpAllowed(sourceIp)) {
+  const authProblem = checkCallbackAuth(sourceIp, req.nextUrl.searchParams.get("s"));
+  if (authProblem) {
     await MpesaCallbackLog.create({
       sourceIp,
       checkoutRequestId: checkoutRequestId ?? null,
       resultCode: resultCode ?? null,
       rawPayload: payload,
-      processingNote: "Rejected: source IP not in DARAJA_CALLBACK_IP_ALLOWLIST",
+      processingNote: "Rejected: " + authProblem,
     });
     return ack();
   }
@@ -61,10 +58,13 @@ export async function POST(req: NextRequest) {
   }
 
   let mpesaReceiptNumber: string | null = null;
+  let amountPaid: number | null = null;
   if (resultCode === 0 && callback.CallbackMetadata?.Item) {
     const items: { Name: string; Value: string | number }[] = callback.CallbackMetadata.Item;
     const receiptItem = items.find((i: any) => i.Name === "MpesaReceiptNumber");
     mpesaReceiptNumber = receiptItem ? String(receiptItem.Value) : null;
+    const amountItem = items.find((i: any) => i.Name === "Amount");
+    amountPaid = amountItem != null ? Number(amountItem.Value) : null;
   }
 
   const txn = await Transaction.findOne({ "mpesaDetails.checkoutRequestId": checkoutRequestId });
@@ -92,10 +92,17 @@ export async function POST(req: NextRequest) {
     return ack();
   }
 
-  const newStatus = resultCode === 0 ? "SUCCESS" : "FAILED";
+  // A success is only accepted if the amount paid matches the sale (Daraja
+  // charges whole shillings, so compare against the rounded total).
+  const expected = Math.round(txn.amountTotal);
+  const amountOk = amountPaid !== null && Math.round(amountPaid) === expected;
+  const newStatus = resultCode === 0 && amountOk ? "SUCCESS" : "FAILED";
   txn.paymentStatus = newStatus;
   txn.mpesaDetails.resultCode = resultCode ?? null;
-  txn.mpesaDetails.resultDesc = resultDesc;
+  txn.mpesaDetails.resultDesc =
+    resultCode === 0 && !amountOk
+      ? `Amount mismatch: paid ${amountPaid ?? "unknown"}, expected ${expected}. Needs review.`
+      : resultDesc;
   txn.mpesaDetails.receiptNumber = mpesaReceiptNumber;
   await txn.save();
 

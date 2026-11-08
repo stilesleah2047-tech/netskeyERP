@@ -39,7 +39,7 @@ export interface Transaction {
   branchId: string | { _id: string; branchName: string };
   staffId: string;
   customerName: string | null;
-  customerPhone: string;
+  customerPhone: string | null;
   sizeLiters: number;
   quantity: number;
   unitPrice: number;

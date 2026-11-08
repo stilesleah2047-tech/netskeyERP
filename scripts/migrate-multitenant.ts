@@ -17,6 +17,20 @@ import { DEFAULT_TIER, TRIAL_DAYS } from "../src/lib/tiers";
 async function migrate() {
   await connectDb();
 
+  // SAFETY (pre-pilot review 6.8): this script assigns every document that
+  // has no businessId to ONE business. That is only correct for a legacy
+  // single-tenant database. On a live multi-tenant database it would hand
+  // stray records to whichever owner is oldest, so refuse unless forced.
+  const businessCount = await Business.countDocuments();
+  if (businessCount > 1 && process.env.MIGRATE_FORCE !== "yes") {
+    console.error(
+      `Refusing to run: ${businessCount} businesses already exist, so this is a multi-tenant database.\n` +
+        "Orphaned documents must be assigned by hand. Set MIGRATE_FORCE=yes only if you are certain."
+    );
+    await mongoose.disconnect();
+    process.exit(1);
+  }
+
   const owner = await User.findOne({ role: "SUPER_ADMIN" }).sort({ createdAt: 1 });
   if (!owner) {
     console.error(

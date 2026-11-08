@@ -6,7 +6,9 @@ import { Purchase } from "@/lib/server/models/Purchase";
 import { Expense } from "@/lib/server/models/Expense";
 import { Product } from "@/lib/server/models/Product";
 import { StockMovement } from "@/lib/server/models/StockMovement";
-import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
+import { businessDate, businessDayRange } from "@/lib/server/businessDay";
+import { isObjectId } from "@/lib/server/ids";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,13 +35,19 @@ export async function GET(req: NextRequest) {
   await connectDb();
   const auth = getAuth(req);
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  // Owner/manager data only — cashiers (DELIVERY) must not read or write
+  // costs, expenses or profit (PRD 5.1 / pre-pilot review section 5).
+  if (!requireRole(auth, "SUPER_ADMIN", "BRANCH_MANAGER")) {
+    return NextResponse.json({ error: "You do not have access to this" }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const branchId = resolveBranchScope(auth, url.searchParams.get("branchId"));
 
   // Default range: start of the current month -> now.
   const now = new Date();
-  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  // Start of the current month in Africa/Nairobi time.
+  const defaultFrom = businessDayRange(businessDate(now).slice(0, 8) + "01").start;
   const from = url.searchParams.get("from") ? new Date(url.searchParams.get("from")!) : defaultFrom;
   const to = url.searchParams.get("to") ? new Date(url.searchParams.get("to")!) : now;
 
@@ -55,6 +63,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  if (branchId && !isObjectId(branchId)) {
+    return NextResponse.json({ error: "Invalid branchId" }, { status: 400 });
+  }
   const branchObjId = branchId ? new mongoose.Types.ObjectId(branchId) : null;
   const businessObjId = new mongoose.Types.ObjectId(auth.businessId);
   const dateMatch = { createdAt: { $gte: from, $lte: to } };

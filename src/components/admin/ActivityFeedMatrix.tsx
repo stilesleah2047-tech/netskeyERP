@@ -45,7 +45,7 @@ export default function ActivityFeedMatrix({ transactions, branchNames, connecte
             <li key={t._id} className="flex items-center justify-between gap-3 px-4 py-3 animate-fade-up">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium text-depth-900">{t.customerName || t.customerPhone}</p>
+                  <p className="truncate text-sm font-medium text-depth-900">{t.customerName || t.customerPhone || "Walk-in customer"}</p>
                   {scope === "global" && (
                     <span className="whitespace-nowrap rounded-full bg-depth-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-depth-600">
                       {branchLabel}

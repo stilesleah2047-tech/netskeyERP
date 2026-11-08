@@ -3,6 +3,7 @@ import { connectDb } from "@/lib/server/db";
 import { Branch } from "@/lib/server/models/Branch";
 import { Product } from "@/lib/server/models/Product";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { isObjectId } from "@/lib/server/ids";
 import { stockLevels } from "@/lib/server/stock";
 
 export const runtime = "nodejs";
@@ -22,6 +23,9 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const scopeBranch = resolveBranchScope(auth, url.searchParams.get("branchId"));
+  if (scopeBranch && !isObjectId(scopeBranch)) {
+    return NextResponse.json({ error: "Invalid branchId" }, { status: 400 });
+  }
 
   const [levels, branches, products] = await Promise.all([
     stockLevels(auth.businessId, scopeBranch),
