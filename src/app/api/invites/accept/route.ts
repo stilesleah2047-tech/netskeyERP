@@ -173,6 +173,13 @@ export async function POST(req: NextRequest) {
   invite.acceptedUserId = user._id;
   await invite.save();
 
+  // The first owner to accept becomes the business's owner of record. The
+  // conditional update means only one owner can ever claim an ownerless
+  // business, even if two links were somehow accepted at once.
+  if (user.role === "SUPER_ADMIN") {
+    await Business.updateOne({ _id: invite.businessId, ownerId: null }, { ownerId: user._id });
+  }
+
   // A new manager takes over their branch.
   if (user.role === "BRANCH_MANAGER" && user.branchId) {
     await Branch.findOneAndUpdate(

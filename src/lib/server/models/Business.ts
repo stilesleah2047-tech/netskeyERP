@@ -4,7 +4,9 @@ import { DEFAULT_TIER, type TierId, type SubscriptionStatus } from "@/lib/tiers"
 export interface IBusiness extends Document {
   _id: Types.ObjectId;
   name: string;
-  ownerId: Types.ObjectId;
+  // Null while the owner invite is pending (businesses are created by the
+  // platform operator; the owner joins through a one-time invite link).
+  ownerId: Types.ObjectId | null;
   isActive: boolean;
   tier: TierId;
   subscriptionStatus: SubscriptionStatus;
@@ -17,7 +19,7 @@ export interface IBusiness extends Document {
 const businessSchema = new Schema<IBusiness>(
   {
     name: { type: String, required: true, trim: true },
-    ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     isActive: { type: Boolean, default: true },
     tier: {
       type: String,

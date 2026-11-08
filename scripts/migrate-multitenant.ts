@@ -34,7 +34,7 @@ async function migrate() {
   const owner = await User.findOne({ role: "SUPER_ADMIN" }).sort({ createdAt: 1 });
   if (!owner) {
     console.error(
-      "No SUPER_ADMIN found. Create one via the /signup page, or run `npm run seed` first, then re-run this migration."
+      "No SUPER_ADMIN found. Create one from the Platform Command Center, or run `npm run seed` first, then re-run this migration."
     );
     await mongoose.disconnect();
     process.exit(1);

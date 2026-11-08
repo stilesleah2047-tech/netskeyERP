@@ -26,6 +26,13 @@ interface BizRow {
   maxUsers: number | null;
   maxBranches: number | null;
   owner: { name: string; email: string; phoneNumber: string } | null;
+  // Present while the owner has not joined yet.
+  ownerInvite: { email: string | null; expiresAt: string | null } | null;
+}
+
+interface InviteResult {
+  acceptPath: string;
+  expiresAt: string;
 }
 
 interface Stats {
@@ -63,6 +70,8 @@ export default function PlatformPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  // The most recent invite link, shown once so the operator can send it.
+  const [lastLink, setLastLink] = useState<{ business: string; url: string; expiresAt: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -107,6 +116,26 @@ export default function PlatformPage() {
     setSavingId(null);
   }
 
+  function showLink(business: string, r: InviteResult) {
+    setLastLink({ business, url: window.location.origin + r.acceptPath, expiresAt: r.expiresAt });
+  }
+
+  async function reissue(b: BizRow, ownerEmail: string) {
+    setSavingId(b.id);
+    try {
+      const r = await apiFetch<InviteResult>('/api/platform/businesses/' + b.id + '/owner-invite', {
+        method: 'POST',
+        body: JSON.stringify({ ownerEmail }),
+      });
+      showLink(b.name, r);
+      show('New owner link created for ' + b.name, 'success');
+      await load();
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : 'Could not create link', 'error');
+    }
+    setSavingId(null);
+  }
+
   if (!ready) {
     return (
       <main className="min-h-screen bg-depth-950 pb-12">
@@ -127,8 +156,9 @@ export default function PlatformPage() {
           <p className="text-xs uppercase tracking-[0.2em] text-flow-400">Operator</p>
           <h1 className="font-display text-2xl font-bold">Platform Command Center</h1>
           <p className="mt-1 text-sm text-white/60">
-            Every business on your platform, across all tenants. Change plans, extend billing periods,
-            and suspend accounts here.
+            Every business on your platform, across all tenants. Create businesses, change plans,
+            extend billing periods, and suspend accounts here. Public signup is closed: only you can
+            add a business.
           </p>
         </div>
       </header>
@@ -144,11 +174,20 @@ export default function PlatformPage() {
           </div>
         )}
 
+        <CreateBusinessForm
+          onCreated={async (name, r) => {
+            showLink(name, r);
+            await load();
+          }}
+        />
+
+        {lastLink && <InviteLinkBox link={lastLink} onClose={() => setLastLink(null)} />}
+
         {loading ? (
           <SkeletonList rows={4} />
         ) : rows.length === 0 ? (
           <div className="rounded-xl2 border border-white/10 bg-white/5 p-8 text-center text-white/60">
-            No businesses have signed up yet.
+            No businesses yet. Create the first one above.
           </div>
         ) : (
           <div className="space-y-4">
@@ -158,6 +197,7 @@ export default function PlatformPage() {
                 b={b}
                 saving={savingId === b.id}
                 onPatch={patch}
+                onReissue={reissue}
               />
             ))}
           </div>
@@ -176,14 +216,147 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
+function CreateBusinessForm({ onCreated }: { onCreated: (name: string, r: InviteResult) => void }) {
+  const { show } = useToast();
+  const [businessName, setBusinessName] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [tier, setTier] = useState<TierId>('STARTER');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (businessName.trim().length < 2 || !ownerEmail.includes('@')) {
+      show('Enter a business name and the owner\'s email', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await apiFetch<InviteResult>('/api/platform/businesses', {
+        method: 'POST',
+        body: JSON.stringify({ businessName: businessName.trim(), ownerEmail: ownerEmail.trim(), tier }),
+      });
+      show(businessName.trim() + ' created', 'success');
+      onCreated(businessName.trim(), r);
+      setBusinessName('');
+      setOwnerEmail('');
+      setTier('STARTER');
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : 'Could not create business', 'error');
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="rounded-xl2 border border-white/10 bg-white/5 p-4">
+      <h2 className="font-display text-base font-semibold text-white">Create a business</h2>
+      <p className="mt-0.5 text-xs text-white/50">
+        You get a one-time link to send the owner. They open it to set their own name, phone and
+        password. The link works for 7 days.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[2fr_2fr_1fr_auto] sm:items-end">
+        <div>
+          <label className="mb-1 block text-xs text-white/50" htmlFor="new-biz-name">Business name</label>
+          <input
+            id="new-biz-name"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            placeholder="e.g. Maji Safi Refills"
+            className="w-full rounded-xl border border-white/15 bg-depth-900 px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-white/50" htmlFor="new-biz-email">Owner&apos;s email</label>
+          <input
+            id="new-biz-email"
+            type="email"
+            value={ownerEmail}
+            onChange={(e) => setOwnerEmail(e.target.value)}
+            placeholder="owner@example.com"
+            className="w-full rounded-xl border border-white/15 bg-depth-900 px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-white/50" htmlFor="new-biz-tier">Plan</label>
+          <select
+            id="new-biz-tier"
+            value={tier}
+            onChange={(e) => setTier(e.target.value as TierId)}
+            className="w-full rounded-xl border border-white/15 bg-depth-900 px-3 py-2 text-sm text-white"
+          >
+            {TIER_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={submit}
+          className="tap-target rounded-xl2 bg-gradient-to-r from-flow-500 to-flow-700 px-4 text-sm font-semibold text-depth-950 disabled:opacity-60"
+        >
+          {busy ? 'Creating…' : 'Create business'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InviteLinkBox({
+  link,
+  onClose,
+}: {
+  link: { business: string; url: string; expiresAt: string };
+  onClose: () => void;
+}) {
+  const { show } = useToast();
+  return (
+    <div className="rounded-xl2 border border-flow-500/40 bg-flow-500/10 p-4">
+      <p className="text-sm font-semibold text-white">Owner invite link for {link.business}</p>
+      <p className="mt-0.5 text-xs text-white/60">
+        Copy it now and send it to the owner. It is shown only once and expires {fmtDate(link.expiresAt)}.
+      </p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          readOnly
+          value={link.url}
+          onFocus={(e) => e.target.select()}
+          className="w-full rounded-xl border border-white/15 bg-depth-900 px-3 py-2 font-mono text-xs text-white"
+        />
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(link.url);
+              show('Link copied', 'success');
+            } catch {
+              show('Select the link and copy it manually', 'info');
+            }
+          }}
+          className="tap-target rounded-xl2 bg-flow-500 px-4 text-sm font-semibold text-depth-950"
+        >
+          Copy
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="tap-target rounded-xl2 border border-white/20 px-4 text-sm text-white/80"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BusinessCard({
   b,
   saving,
   onPatch,
+  onReissue,
 }: {
   b: BizRow;
   saving: boolean;
   onPatch: (id: string, update: Record<string, unknown>, label: string) => void;
+  onReissue: (b: BizRow, ownerEmail: string) => void;
 }) {
   const overBranches = b.maxBranches !== null && b.branchCount > b.maxBranches;
   const overUsers = b.maxUsers !== null && b.userCount > b.maxUsers;
@@ -202,7 +375,15 @@ function BusinessCard({
               {b.owner.name} · {b.owner.email} · {b.owner.phoneNumber}
             </p>
           )}
-          <p className="mt-0.5 text-xs text-white/40">Joined {fmtDate(b.createdAt)}</p>
+          {!b.owner && b.ownerInvite && (
+            <p className="mt-0.5 text-xs text-cash-400">
+              Owner not joined yet
+              {b.ownerInvite.email
+                ? ' · invite sent to ' + b.ownerInvite.email + ' · expires ' + fmtDate(b.ownerInvite.expiresAt)
+                : ' · no active invite link'}
+            </p>
+          )}
+          <p className="mt-0.5 text-xs text-white/40">Created {fmtDate(b.createdAt)}</p>
         </div>
         <div className="text-right">
           <p className="font-display text-base font-semibold text-flow-300">
@@ -268,6 +449,19 @@ function BusinessCard({
         >
           {saving ? "Saving…" : "Mark paid +30 days"}
         </button>
+        {!b.owner && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              const email = window.prompt('Owner\'s email for the new link', b.ownerInvite?.email ?? '');
+              if (email && email.includes('@')) onReissue(b, email.trim());
+            }}
+            className="tap-target rounded-xl2 border border-flow-500/40 px-4 text-sm font-medium text-flow-300 disabled:opacity-60"
+          >
+            New owner link
+          </button>
+        )}
         {b.subscriptionStatus !== "SUSPENDED" ? (
           <button
             type="button"

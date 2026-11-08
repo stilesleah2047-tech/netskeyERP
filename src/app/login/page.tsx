@@ -256,10 +256,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-sm text-depth-500">
-          New here?{" "}
-          <a href="/signup" className="font-semibold text-flow-600 hover:text-flow-700">
-            Create a business account
-          </a>
+          Accounts are by invitation. Got an invite link? Open it to set up your login.
         </p>
 
         <p className="mt-3 text-center text-xs text-depth-400">
