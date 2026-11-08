@@ -4,6 +4,8 @@ import { connectDb } from "@/lib/server/db";
 import { Transaction } from "@/lib/server/models/Transaction";
 import { DailyInventory } from "@/lib/server/models/DailyInventory";
 import { getAuth, resolveBranchScope } from "@/lib/server/auth";
+import { businessDate, businessDayRange, isBusinessDateString } from "@/lib/server/businessDay";
+import { isObjectId } from "@/lib/server/ids";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,14 +16,30 @@ export async function GET(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const branchId = resolveBranchScope(auth, req.nextUrl.searchParams.get("branchId"));
-  const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+  const dateParam = req.nextUrl.searchParams.get("date");
+  if (dateParam && !isBusinessDateString(dateParam)) {
+    return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
+  }
+  if (branchId && !isObjectId(branchId)) {
+    return NextResponse.json({ error: "Invalid branchId" }, { status: 400 });
+  }
+  const date = dateParam || businessDate();
 
   const invMatch: Record<string, unknown> = { date, businessId: new mongoose.Types.ObjectId(auth.businessId) };
   if (branchId) invMatch.branchId = new mongoose.Types.ObjectId(branchId);
 
   const inventoryRows = await DailyInventory.aggregate([
     { $match: invMatch },
-    { $lookup: { from: "products", localField: "productId", foreignField: "_id", as: "product" } },
+    // Tenant-scoped lookup: never show another business's product label even
+    // if a foreign productId ever reached DailyInventory (review 1.2).
+    {
+      $lookup: {
+        from: "products",
+        let: { pid: "$productId", bid: "$businessId" },
+        pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$_id", "$$pid"] }, { $eq: ["$businessId", "$$bid"] }] } } }],
+        as: "product",
+      },
+    },
     { $unwind: "$product" },
     { $lookup: { from: "branches", localField: "branchId", foreignField: "_id", as: "branch" } },
     { $unwind: "$branch" },
@@ -39,9 +57,8 @@ export async function GET(req: NextRequest) {
     },
   ]);
 
-  const dayStart = new Date(date + "T00:00:00.000Z");
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  // Sales counted over the Africa/Nairobi business day.
+  const { start: dayStart, end: dayEnd } = businessDayRange(date);
 
   const soldMatch: Record<string, unknown> = {
     businessId: new mongoose.Types.ObjectId(auth.businessId),

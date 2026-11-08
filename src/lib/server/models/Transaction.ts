@@ -9,7 +9,7 @@ export interface ITransaction extends Document {
   branchId: Types.ObjectId;
   staffId: Types.ObjectId;
   customerName: string | null;
-  customerPhone: string;
+  customerPhone: string | null; // optional for walk-in cash sales
   productId: Types.ObjectId;
   sizeLiters: number; // snapshotted at sale time
   quantity: number;
@@ -39,6 +39,10 @@ export interface ITransaction extends Document {
   // client input (see transactions.routes.ts / mpesa.routes.ts — neither
   // route reads a timestamp field off the request body).
   clientSubmittedAt: Date | null;
+  /** Unit price the device showed at sale time (offline snapshot). */
+  clientUnitPrice: number | null;
+  /** True when the device price differed from the server price at sync. */
+  priceMismatch: boolean;
 
   createdAt: Date; // authoritative — server clock
   updatedAt: Date;
@@ -50,7 +54,7 @@ const transactionSchema = new Schema<ITransaction>(
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     staffId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     customerName: { type: String, default: null, trim: true },
-    customerPhone: { type: String, required: true },
+    customerPhone: { type: String, default: null },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     sizeLiters: { type: Number, required: true },
     quantity: { type: Number, required: true, min: 1 },
@@ -75,6 +79,8 @@ const transactionSchema = new Schema<ITransaction>(
     clientUuid: { type: String, required: true },
     syncedFromOffline: { type: Boolean, default: false },
     clientSubmittedAt: { type: Date, default: null },
+    clientUnitPrice: { type: Number, default: null },
+    priceMismatch: { type: Boolean, default: false },
   },
   { timestamps: true } // createdAt/updatedAt set from the server's Date.now(), not client input
 );

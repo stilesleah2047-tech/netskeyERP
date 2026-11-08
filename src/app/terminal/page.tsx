@@ -5,7 +5,39 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import { isValidKenyanPhone } from "@/lib/phone";
 import { AuthUser, PaymentMethod, Product } from "@/lib/types";
-import { generateClientUuid, queueCashSale, registerOfflineSync } from "@/lib/offlineQueue";
+import {
+  generateClientUuid,
+  queueCashSale,
+  registerOfflineSync,
+  applySyncResult,
+  toWire,
+  countPending,
+  getRejectedSales,
+  dismissRejected,
+  QueuedCashSale,
+  SyncResponse,
+} from "@/lib/offlineQueue";
+
+// Cached copies of the signed-in user and price list, so the terminal can
+// open and sell with no connection (PRD 5.5 "Sale works fully offline").
+const ME_CACHE_KEY = "aquaflow:terminal:me";
+const PRODUCTS_CACHE_KEY = "aquaflow:terminal:products";
+
+function readCache<T>(key: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+function writeCache(key: string, value: unknown) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage full or unavailable: offline open just won't work */
+  }
+}
 import { useToast } from "@/components/ui/Toast";
 import ProductSizeSelector from "@/components/terminal/ProductSizeSelector";
 import QuantityCounter from "@/components/terminal/QuantityCounter";
@@ -24,6 +56,7 @@ export default function TerminalPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [online, setOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [rejectedSales, setRejectedSales] = useState<QueuedCashSale[]>([]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
@@ -43,27 +76,70 @@ export default function TerminalPage() {
   const selectedProduct = products.find((p) => p._id === selectedProductId) ?? null;
   const amount = selectedProduct ? quantity * selectedProduct.unitPrice : 0;
 
+  async function refreshQueueState(userId: string) {
+    try {
+      setPendingCount(await countPending(userId));
+      setRejectedSales(await getRejectedSales(userId));
+    } catch {
+      /* IndexedDB unavailable */
+    }
+  }
+
   useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+
+    let unregister: () => void = () => {};
+
     (async () => {
+      let user: AuthUser | null = null;
       try {
         const result = await apiFetch<{ user: AuthUser }>("/api/auth/me");
-        if (result.user.role === "SUPER_ADMIN") {
-          router.replace("/admin/dashboard");
+        user = result.user;
+        writeCache(ME_CACHE_KEY, user);
+      } catch (err) {
+        // Offline (network error, not a 401): fall back to the last signed-in
+        // user on this device so the cashier can keep selling.
+        const isAuthFailure = err instanceof ApiError && (err.status === 401 || err.status === 403);
+        const cached = !isAuthFailure ? readCache<AuthUser>(ME_CACHE_KEY) : null;
+        if (!cached) {
+          router.replace("/login");
           return;
         }
-        setMe(result.user);
-      } catch {
-        router.replace("/login");
+        user = cached;
+      }
+      if (user.role === "SUPER_ADMIN") {
+        router.replace("/admin/dashboard");
         return;
       }
+      setMe(user);
       setAuthChecked(true);
+      const userId = user.id;
+      refreshQueueState(userId);
+
+      unregister = registerOfflineSync(userId, (r) => {
+        if (r.synced > 0) show(r.synced + " queued sale(s) synced", "success");
+        if (r.rejected > 0) show(r.rejected + " queued sale(s) were rejected — see below", "error");
+        refreshQueueState(userId);
+      });
 
       try {
-        const productsResult = await apiFetch<{ products: Product[] }>("/api/products");
+        // pricing=branch applies this branch's price overrides, so the screen
+        // shows the same price the server will record.
+        const productsResult = await apiFetch<{ products: Product[] }>("/api/products?pricing=branch");
         setProducts(productsResult.products);
+        writeCache(PRODUCTS_CACHE_KEY, productsResult.products);
         if (productsResult.products.length > 0) setSelectedProductId(productsResult.products[0]._id);
       } catch {
-        show("Could not load jerrycan sizes — check your connection", "error");
+        const cached = readCache<Product[]>(PRODUCTS_CACHE_KEY);
+        if (cached && cached.length > 0) {
+          setProducts(cached);
+          setSelectedProductId(cached[0]._id);
+          show("Offline — using the last saved price list", "info");
+        } else {
+          show("Could not load jerrycan sizes — check your connection", "error");
+        }
       }
       setProductsLoading(false);
     })();
@@ -79,12 +155,6 @@ export default function TerminalPage() {
     };
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
-    const unregister = registerOfflineSync((r) => {
-      if (r.synced > 0) {
-        setPendingCount((c) => Math.max(0, c - r.synced));
-        show(r.synced + " queued sale(s) synced", "success");
-      }
-    });
 
     return () => {
       window.removeEventListener("online", goOnline);
@@ -110,7 +180,10 @@ export default function TerminalPage() {
       setFormError("Choose a jerrycan size first.");
       return false;
     }
-    if (!isValidKenyanPhone(customerPhone)) {
+    // Phone is required for M-Pesa (the prompt goes to it) but optional for a
+    // walk-in cash sale, to keep the counter fast.
+    const phoneNeeded = method === "MPESA" || customerPhone.trim() !== "";
+    if (phoneNeeded && !isValidKenyanPhone(customerPhone)) {
       setPhoneError("Enter a valid Kenyan number: 07XXXXXXXX or +2547XXXXXXXX");
       return false;
     }
@@ -120,45 +193,43 @@ export default function TerminalPage() {
   }
 
   async function handleCashSale() {
-    if (!validate() || !selectedProduct) return;
+    if (!validate() || !selectedProduct || !me) return;
     setSubmitting(true);
 
-    const sale = {
+    const row: Omit<QueuedCashSale, "status"> = {
       clientUuid: generateClientUuid(),
       customerName: customerName || undefined,
-      customerPhone,
+      customerPhone: customerPhone.trim() || undefined,
       productId: selectedProduct._id,
       quantity,
       clientSubmittedAt: new Date().toISOString(),
+      clientUnitPrice: selectedProduct.unitPrice,
+      userId: me.id,
+      branchId: me.branchId,
     };
 
     // IndexedDB write is the only step that must complete before we can
-    // safely show success — it's what guarantees the sale survives even if
-    // the app crashes or the device loses power before the network sync
-    // below finishes. It's also fast (a few ms), so this doesn't add
-    // perceptible delay.
-    await queueCashSale(sale);
+    // safely show success — it guarantees the sale survives a crash or power
+    // loss before the network sync below finishes.
+    await queueCashSale(row);
     setPendingCount((c) => c + 1);
     setSubmitting(false);
 
-    // OPTIMISTIC UI: show the confirmation screen immediately rather than
-    // waiting on the network round trip. The worker handed over the
-    // jerrycan and took the cash — from their perspective the sale is
-    // already done, and the app should agree instantly. The actual sync
-    // to the server happens in the background; if it fails here, the sale
-    // is NOT lost — it stays in the offline queue and the 'online'
-    // listener / interval in offlineQueue.ts retries it automatically.
+    // OPTIMISTIC UI: confirm immediately; sync happens in the background.
     setScreen({ kind: "cash_saved" });
 
     if (navigator.onLine) {
-      apiFetch("/api/transactions/cash", {
+      apiFetch<SyncResponse>("/api/transactions/cash", {
         method: "POST",
-        body: JSON.stringify({ sales: [sale] }),
+        body: JSON.stringify({ sales: [toWire({ ...row, status: "pending" })] }),
       })
-        .then(() => setPendingCount((c) => Math.max(0, c - 1)))
+        // Mark the row synced (or rejected) in IndexedDB so the background
+        // flush never re-sends it. Previously this step was missing, which
+        // let synced rows pile up until sync broke at 100 rows.
+        .then((result) => applySyncResult(result))
+        .then(() => refreshQueueState(me.id))
         .catch(() => {
-          // stays queued; offline sync interval will retry — no toast here,
-          // since this is a routine background retry, not a user-facing error
+          // stays queued; the offline sync interval will retry
         });
     }
   }
@@ -210,7 +281,7 @@ export default function TerminalPage() {
           });
         } else if (Date.now() - start > 60000) {
           clearInterval(pollRef.current!);
-          setScreen({ kind: "mpesa", transactionId, ui: "FAILED", reason: "No response from customer in time." });
+          setScreen({ kind: "mpesa", transactionId, ui: "FAILED", reason: "No confirmation yet. Do NOT take cash for this sale — the customer may still complete the M-Pesa payment. Check the live feed first." });
         }
       } catch {
         // transient network hiccup while polling; keep trying until timeout above
@@ -250,6 +321,37 @@ export default function TerminalPage() {
       </header>
 
       <div className="mx-auto -mt-3 max-w-md space-y-4 px-5">
+        {rejectedSales.length > 0 && (
+          <div className="rounded-xl2 border border-alert-500/40 bg-white p-4 shadow-soft">
+            <h2 className="font-display text-sm font-bold text-alert-500">
+              {rejectedSales.length} queued sale(s) could not be saved
+            </h2>
+            <p className="mt-1 text-xs text-depth-600">
+              These were recorded on this device but the server refused them. Tell your manager, then dismiss.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {rejectedSales.map((r) => (
+                <li key={r.clientUuid} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="text-depth-700">
+                    {new Date(r.clientSubmittedAt).toLocaleString()} · qty {r.quantity}
+                    {r.clientUnitPrice != null ? " · KES " + (r.clientUnitPrice * r.quantity).toLocaleString() : ""}
+                    <br />
+                    <span className="text-xs text-alert-500">{r.rejectReason || "Rejected"}</span>
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await dismissRejected(r.clientUuid);
+                      if (me) refreshQueueState(me.id);
+                    }}
+                    className="rounded-lg border border-depth-200 px-2 py-1 text-xs text-depth-600"
+                  >
+                    Dismiss
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {screen.kind === "cash_saved" ? (
           <div className="animate-fade-up rounded-xl2 border border-cash-500/30 bg-white p-6 text-center shadow-soft">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-cash-500/15 text-2xl">💵</div>
@@ -275,7 +377,7 @@ export default function TerminalPage() {
                 className="tap-target w-full rounded-xl border border-depth-200 px-3 mb-3"
               />
               <label className="mb-1.5 block text-sm font-medium text-depth-600" htmlFor="cust-phone">
-                Customer phone
+                Customer phone{method === "CASH" ? " (optional for cash)" : ""}
               </label>
               <input
                 id="cust-phone"

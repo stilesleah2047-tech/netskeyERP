@@ -22,6 +22,10 @@ export async function GET(req: NextRequest) {
   const branch = user.branchId ? await Branch.findById(user.branchId).lean() : null;
   const business = await Business.findById(user.businessId).lean();
 
+  if (!isPlatformAdminEmail(user.email) && (business?.isActive === false || business?.subscriptionStatus === "SUSPENDED")) {
+    return NextResponse.json({ error: "This business account is suspended. Contact support." }, { status: 403 });
+  }
+
   const tier = (business?.tier as TierId) ?? "STARTER";
   const status = (business?.subscriptionStatus as SubscriptionStatus) ?? "TRIALING";
   const tierDef = TIERS[tier];

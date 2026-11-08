@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
-import { Product } from "@/lib/server/models/Product";
+import { Product, BranchPricing } from "@/lib/server/models/Product";
 import { getAuth, requireRole } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
@@ -23,6 +23,22 @@ export async function GET(req: NextRequest) {
   if (!canSeeInactive) filter.isActive = true;
 
   const products = await Product.find(filter).sort({ sortOrder: 1 }).lean();
+
+  // ?pricing=branch (used by the terminal) returns each product at the price
+  // the server will actually charge at the caller's branch, so the screen and
+  // the recorded sale agree.
+  if (req.nextUrl.searchParams.get("pricing") === "branch" && auth.branchId) {
+    const overrides = await BranchPricing.find({
+      businessId: auth.businessId,
+      branchId: auth.branchId,
+      productId: { $in: products.map((p) => p._id) },
+    }).lean();
+    const map = new Map(overrides.map((o) => [o.productId.toString(), o.unitPrice]));
+    for (const p of products) {
+      const o = map.get(p._id.toString());
+      if (o != null) (p as any).unitPrice = o;
+    }
+  }
   return NextResponse.json({ products });
 }
 
@@ -38,8 +54,11 @@ const createSchema = z.object({
 export async function POST(req: NextRequest) {
   await connectDb();
   const auth = getAuth(req);
-  if (!requireRole(auth, "BRANCH_MANAGER", "SUPER_ADMIN")) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  // Products and their prices are tenant-wide, so only the owner may change
+  // them. Branch-specific prices go through /api/branches/[id]/prices.
+  if (!requireRole(auth, "SUPER_ADMIN")) {
+    return NextResponse.json({ error: "Only the business owner can change products and prices" }, { status: 403 });
   }
 
   const json = await req.json().catch(() => null);

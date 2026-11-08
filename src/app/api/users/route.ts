@@ -5,6 +5,7 @@ import { connectDb } from "@/lib/server/db";
 import { User } from "@/lib/server/models/User";
 import { Branch } from "@/lib/server/models/Branch";
 import { getAuth, requireRole, resolveBranchScope } from "@/lib/server/auth";
+import { audit } from "@/lib/server/audit";
 import { normalizeKenyanPhone } from "@/lib/server/phone";
 import { userLimitError, loadTier } from "@/lib/server/subscription";
 
@@ -100,6 +101,15 @@ export async function POST(req: NextRequest) {
         { managerId: user._id }
       );
     }
+
+    await audit({
+      businessId: auth!.businessId,
+      actorId: auth!.sub,
+      action: "user.create",
+      targetType: "User",
+      targetId: user._id,
+      details: { role: data.role, branchId: branchId ?? null },
+    });
 
     const obj: any = user.toObject();
     delete obj.passwordHash;

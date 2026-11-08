@@ -4,6 +4,8 @@ import { User } from "@/lib/server/models/User";
 import { UserSession } from "@/lib/server/models/UserSession";
 import { signAccessToken, generateRefreshToken, hashRefreshToken, refreshTtlMs } from "@/lib/server/jwt";
 import { ACCESS_COOKIE, REFRESH_COOKIE, accessCookieOptions, refreshCookieOptions } from "@/lib/server/auth";
+import { isPlatformAdminEmail } from "@/lib/server/platform";
+import { businessBlockReason } from "@/lib/server/subscription";
 
 export const runtime = "nodejs";
 
@@ -27,6 +29,14 @@ export async function POST(req: NextRequest) {
   if (!user || !user.isActive) {
     await UserSession.deleteOne({ _id: session._id });
     return NextResponse.json({ error: "Account no longer active" }, { status: 401 });
+  }
+
+  if (!isPlatformAdminEmail(user.email)) {
+    const blocked = await businessBlockReason(user.businessId);
+    if (blocked) {
+      await UserSession.deleteOne({ _id: session._id });
+      return NextResponse.json({ error: blocked }, { status: 403 });
+    }
   }
 
   const newRefreshToken = generateRefreshToken();

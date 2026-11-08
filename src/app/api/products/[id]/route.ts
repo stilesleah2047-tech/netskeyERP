@@ -3,6 +3,7 @@ import { z } from "zod";
 import { connectDb } from "@/lib/server/db";
 import { Product } from "@/lib/server/models/Product";
 import { getAuth, requireRole } from "@/lib/server/auth";
+import { audit } from "@/lib/server/audit";
 
 export const runtime = "nodejs";
 
@@ -19,8 +20,11 @@ const updateSchema = z.object({
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   await connectDb();
   const auth = getAuth(req);
-  if (!requireRole(auth, "BRANCH_MANAGER", "SUPER_ADMIN")) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  if (!auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  // Products and their prices are tenant-wide, so only the owner may change
+  // them. Branch-specific prices go through /api/branches/[id]/prices.
+  if (!requireRole(auth, "SUPER_ADMIN")) {
+    return NextResponse.json({ error: "Only the business owner can change products and prices" }, { status: 403 });
   }
 
   const json = await req.json().catch(() => null);
@@ -38,5 +42,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     { new: true }
   );
   if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
+  await audit({
+    businessId: auth!.businessId,
+    actorId: auth!.sub,
+    action: "product.update",
+    targetType: "Product",
+    targetId: product._id,
+    details: { changes: parsed.data },
+  });
   return NextResponse.json({ product });
 }
