@@ -22,6 +22,11 @@ const saleSchema = z.object({
   clientUnitPrice: z.number().nonnegative().optional(),
   queuedByUserId: z.string().optional(),
   queuedBranchId: z.string().optional(),
+  // Multi-item sale: every line of one basket carries the same group id and
+  // receipt number. Each line keeps its own clientUuid, so exactly-once sync
+  // and per-line stock deduction work as before.
+  saleGroupId: z.string().uuid().optional(),
+  receiptNo: z.string().trim().max(32).optional(),
 });
 const bodySchema = z.object({ sales: z.array(saleSchema).min(1).max(100) });
 
@@ -117,6 +122,8 @@ export async function POST(req: NextRequest) {
         clientSubmittedAt: sale.clientSubmittedAt ? new Date(sale.clientSubmittedAt) : null,
         clientUnitPrice: sale.clientUnitPrice ?? null,
         priceMismatch,
+        saleGroupId: sale.saleGroupId ?? null,
+        receiptNo: sale.receiptNo ?? null,
       });
       inserted.push(created);
       // Draw the sold units out of the stock ledger (FIFO). Sales are NEVER

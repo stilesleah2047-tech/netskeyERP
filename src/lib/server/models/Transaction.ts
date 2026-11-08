@@ -43,6 +43,9 @@ export interface ITransaction extends Document {
   clientUnitPrice: number | null;
   /** True when the device price differed from the server price at sync. */
   priceMismatch: boolean;
+  /** Lines of one multi-item sale share this id and receipt number. */
+  saleGroupId: string | null;
+  receiptNo: string | null;
 
   createdAt: Date; // authoritative — server clock
   updatedAt: Date;
@@ -81,6 +84,8 @@ const transactionSchema = new Schema<ITransaction>(
     clientSubmittedAt: { type: Date, default: null },
     clientUnitPrice: { type: Number, default: null },
     priceMismatch: { type: Boolean, default: false },
+    saleGroupId: { type: String, default: null },
+    receiptNo: { type: String, default: null },
   },
   { timestamps: true } // createdAt/updatedAt set from the server's Date.now(), not client input
 );
@@ -91,6 +96,7 @@ transactionSchema.index({ createdAt: -1 });
 transactionSchema.index({ "mpesaDetails.checkoutRequestId": 1 });
 // Idempotency: an offline-queued sale replayed twice must never duplicate.
 transactionSchema.index({ clientUuid: 1 }, { unique: true });
+transactionSchema.index({ businessId: 1, saleGroupId: 1 }, { sparse: true });
 // Practical addition: the actual hot query pattern for both the live feed
 // and reconciliation is "this branch, most recent first" / "this branch,
 // today" — a compound index serves that far better than the two single

@@ -44,9 +44,36 @@ import QuantityCounter from "@/components/terminal/QuantityCounter";
 import PaymentMethodToggle from "@/components/terminal/PaymentMethodToggle";
 import PaymentStatusOverlay, { MpesaUiState } from "@/components/terminal/PaymentStatusOverlay";
 
+interface BasketLine {
+  productId: string;
+  label: string;
+  unitPrice: number;
+  quantity: number;
+}
+
+interface CashReceipt {
+  receiptNo: string;
+  lines: BasketLine[];
+  total: number;
+  at: string;
+  customerName?: string;
+}
+
+// Short, human-readable receipt number: date plus 4 characters of the sale's
+// group id. Unique enough to find a sale on the owner's side; the group id
+// itself is the real key.
+function makeReceiptNo(groupId: string, at: Date) {
+  const d = at.toISOString().slice(2, 10).replace(/-/g, "");
+  return d + "-" + groupId.replace(/-/g, "").slice(0, 4).toUpperCase();
+}
+
+function lineLabel(p: Product) {
+  return p.label || p.sizeLiters + (p.unit && p.unit !== "L" ? " " + p.unit : "L");
+}
+
 type ScreenState =
   | { kind: "idle" }
-  | { kind: "cash_saved" }
+  | { kind: "cash_saved"; receipt: CashReceipt }
   | { kind: "mpesa"; transactionId: string; ui: MpesaUiState; receipt?: string | null; reason?: string | null };
 
 export default function TerminalPage() {
@@ -71,10 +98,41 @@ export default function TerminalPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [screen, setScreen] = useState<ScreenState>({ kind: "idle" });
+  // Several sizes in one sale (PRD 5.3). Empty basket = quick single-item sale.
+  const [basket, setBasket] = useState<BasketLine[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const selectedProduct = products.find((p) => p._id === selectedProductId) ?? null;
   const amount = selectedProduct ? quantity * selectedProduct.unitPrice : 0;
+  const basketTotal = basket.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+  // What the pay button charges: the basket if it has lines, otherwise the
+  // current selection on its own.
+  const chargeTotal = basket.length > 0 ? basketTotal : amount;
+
+  function addToBasket() {
+    if (!selectedProduct) {
+      setFormError("Choose a jerrycan size first.");
+      return;
+    }
+    setFormError(null);
+    setBasket((prev) => {
+      const existing = prev.find((l) => l.productId === selectedProduct._id);
+      if (existing) {
+        return prev.map((l) =>
+          l.productId === selectedProduct._id ? { ...l, quantity: Math.min(500, l.quantity + quantity) } : l
+        );
+      }
+      return [
+        ...prev,
+        { productId: selectedProduct._id, label: lineLabel(selectedProduct), unitPrice: selectedProduct.unitPrice, quantity },
+      ];
+    });
+    setQuantity(1);
+  }
+
+  function removeFromBasket(productId: string) {
+    setBasket((prev) => prev.filter((l) => l.productId !== productId));
+  }
 
   async function refreshQueueState(userId: string) {
     try {
@@ -169,6 +227,7 @@ export default function TerminalPage() {
     setCustomerName("");
     setCustomerPhone("");
     setQuantity(1);
+    setBasket([]);
     setMethod("CASH");
     setPhoneError(null);
     setFormError(null);
@@ -176,7 +235,7 @@ export default function TerminalPage() {
   }
 
   function validate(): boolean {
-    if (!selectedProduct) {
+    if (!selectedProduct && !(method === "CASH" && basket.length > 0)) {
       setFormError("Choose a jerrycan size first.");
       return false;
     }
@@ -193,39 +252,62 @@ export default function TerminalPage() {
   }
 
   async function handleCashSale() {
-    if (!validate() || !selectedProduct || !me) return;
+    if (!validate() || !me) return;
+    const lines: BasketLine[] =
+      basket.length > 0
+        ? basket
+        : selectedProduct
+          ? [{ productId: selectedProduct._id, label: lineLabel(selectedProduct), unitPrice: selectedProduct.unitPrice, quantity }]
+          : [];
+    if (lines.length === 0) return;
     setSubmitting(true);
 
-    const row: Omit<QueuedCashSale, "status"> = {
+    const now = new Date();
+    const saleGroupId = generateClientUuid();
+    const receiptNo = makeReceiptNo(saleGroupId, now);
+    // One queued row per line, each with its own idempotency key, so a line
+    // is never recorded twice and each draws its own stock.
+    const rows: Omit<QueuedCashSale, "status">[] = lines.map((l) => ({
       clientUuid: generateClientUuid(),
       customerName: customerName || undefined,
       customerPhone: customerPhone.trim() || undefined,
-      productId: selectedProduct._id,
-      quantity,
-      clientSubmittedAt: new Date().toISOString(),
-      clientUnitPrice: selectedProduct.unitPrice,
+      productId: l.productId,
+      quantity: l.quantity,
+      clientSubmittedAt: now.toISOString(),
+      clientUnitPrice: l.unitPrice,
       userId: me.id,
       branchId: me.branchId,
-    };
+      saleGroupId,
+      receiptNo,
+    }));
 
     // IndexedDB write is the only step that must complete before we can
     // safely show success — it guarantees the sale survives a crash or power
     // loss before the network sync below finishes.
-    await queueCashSale(row);
-    setPendingCount((c) => c + 1);
+    for (const row of rows) await queueCashSale(row);
+    setPendingCount((c) => c + rows.length);
     setSubmitting(false);
 
-    // OPTIMISTIC UI: confirm immediately; sync happens in the background.
-    setScreen({ kind: "cash_saved" });
+    // OPTIMISTIC UI: confirm immediately with a receipt built on the device,
+    // so it works offline too. Sync happens in the background.
+    setScreen({
+      kind: "cash_saved",
+      receipt: {
+        receiptNo,
+        lines,
+        total: lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0),
+        at: now.toISOString(),
+        customerName: customerName || undefined,
+      },
+    });
 
     if (navigator.onLine) {
       apiFetch<SyncResponse>("/api/transactions/cash", {
         method: "POST",
-        body: JSON.stringify({ sales: [toWire({ ...row, status: "pending" })] }),
+        body: JSON.stringify({ sales: rows.map((r) => toWire({ ...r, status: "pending" })) }),
       })
-        // Mark the row synced (or rejected) in IndexedDB so the background
-        // flush never re-sends it. Previously this step was missing, which
-        // let synced rows pile up until sync broke at 100 rows.
+        // Mark the rows synced (or rejected) in IndexedDB so the background
+        // flush never re-sends them.
         .then((result) => applySyncResult(result))
         .then(() => refreshQueueState(me.id))
         .catch(() => {
@@ -234,8 +316,44 @@ export default function TerminalPage() {
     }
   }
 
+  function receiptText(r: CashReceipt) {
+    const lines = r.lines.map((l) => `${l.quantity} x ${l.label} @ KES ${l.unitPrice.toLocaleString()} = KES ${(l.quantity * l.unitPrice).toLocaleString()}`);
+    return [
+      me?.businessName || "Receipt",
+      me?.branchName ? "Branch: " + me.branchName : "",
+      "Receipt " + r.receiptNo,
+      new Date(r.at).toLocaleString(),
+      r.customerName ? "Customer: " + r.customerName : "",
+      "",
+      ...lines,
+      "",
+      "Total (cash): KES " + r.total.toLocaleString(),
+      "Served by " + (me?.name ?? ""),
+    ]
+      .filter((x, i, arr) => x !== "" || (i > 0 && arr[i - 1] !== ""))
+      .join("\n");
+  }
+
+  async function shareReceipt(r: CashReceipt) {
+    const text = receiptText(r);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Receipt " + r.receiptNo, text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      show("Receipt copied — paste it into SMS or WhatsApp", "success");
+    } catch {
+      /* user cancelled the share sheet */
+    }
+  }
+
   async function startMpesaPush() {
     if (!validate() || !selectedProduct) return;
+    if (basket.length > 0) {
+      setFormError("M-Pesa takes one size per payment for now. Record this basket as cash, or clear it to pay one size by M-Pesa.");
+      return;
+    }
     if (!navigator.onLine) {
       setFormError("M-Pesa requires an active network connection.");
       return;
@@ -353,13 +471,51 @@ export default function TerminalPage() {
           </div>
         )}
         {screen.kind === "cash_saved" ? (
-          <div className="animate-fade-up rounded-xl2 border border-cash-500/30 bg-white p-6 text-center shadow-soft">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-cash-500/15 text-2xl">💵</div>
-            <h2 className="font-display text-lg font-bold text-depth-900">Cash Sale Recorded</h2>
-            <p className="mt-1 text-sm text-depth-600">
-              KES {amount.toLocaleString()} · {quantity} × {selectedProduct?.sizeLiters}L jerrycans
-            </p>
-            <button onClick={resetForm} className="tap-target mt-6 w-full rounded-xl2 bg-flow-500 font-display font-semibold text-depth-950 active:scale-[0.98]">
+          <div className="animate-fade-up rounded-xl2 border border-cash-500/30 bg-white p-6 shadow-soft print:border-0 print:shadow-none">
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-cash-500/15 text-2xl print:hidden">💵</div>
+              <h2 className="font-display text-lg font-bold text-depth-900">Cash sale recorded</h2>
+              <p className="mt-1 text-sm text-depth-600">
+                Receipt {screen.receipt.receiptNo} · {new Date(screen.receipt.at).toLocaleString()}
+              </p>
+              {screen.receipt.customerName && <p className="text-sm text-depth-600">{screen.receipt.customerName}</p>}
+            </div>
+            <table className="mt-4 w-full text-sm">
+              <tbody>
+                {screen.receipt.lines.map((l) => (
+                  <tr key={l.productId} className="border-b border-depth-200/60">
+                    <td className="py-2 text-depth-800">
+                      {l.quantity} × {l.label}
+                      <span className="block text-xs text-depth-600">KES {l.unitPrice.toLocaleString()} each</span>
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-depth-900">KES {(l.quantity * l.unitPrice).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="pt-3 font-display font-bold text-depth-900">Total</td>
+                  <td className="pt-3 text-right font-display font-bold tabular-nums text-depth-900">
+                    KES {screen.receipt.total.toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            <div className="mt-6 grid grid-cols-2 gap-3 print:hidden">
+              <button
+                onClick={() => shareReceipt(screen.receipt)}
+                className="tap-target rounded-xl2 border border-depth-200 font-display font-semibold text-depth-800"
+              >
+                Share receipt
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="tap-target rounded-xl2 border border-depth-200 font-display font-semibold text-depth-800"
+              >
+                Print
+              </button>
+            </div>
+            <button onClick={resetForm} className="tap-target mt-3 w-full rounded-xl2 bg-flow-500 font-display font-semibold text-depth-950 active:scale-[0.98] print:hidden">
               Start next sale
             </button>
           </div>
@@ -403,6 +559,47 @@ export default function TerminalPage() {
               <QuantityCounter quantity={quantity} onChange={setQuantity} unitPrice={selectedProduct.unitPrice} sizeLabel={selectedProduct.sizeLiters + "L"} />
             )}
 
+            {selectedProduct && method === "CASH" && (
+              <button
+                type="button"
+                onClick={addToBasket}
+                className="tap-target w-full rounded-xl2 border border-depth-200 bg-white font-display font-semibold text-depth-800 active:scale-[0.98]"
+              >
+                Add {quantity} × {lineLabel(selectedProduct)} to this sale
+              </button>
+            )}
+
+            {basket.length > 0 && (
+              <div className="rounded-xl2 border border-depth-200/60 bg-white p-4 shadow-soft">
+                <div className="mb-2 flex items-center justify-between">
+                  <h2 className="font-display text-sm font-bold text-depth-900">This sale</h2>
+                  <button type="button" onClick={() => setBasket([])} className="text-xs text-depth-600 underline underline-offset-2">
+                    Clear
+                  </button>
+                </div>
+                <ul className="space-y-2">
+                  {basket.map((l) => (
+                    <li key={l.productId} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-depth-800">
+                        {l.quantity} × {l.label}
+                      </span>
+                      <span className="flex items-center gap-3">
+                        <span className="tabular-nums text-depth-900">KES {(l.quantity * l.unitPrice).toLocaleString()}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFromBasket(l.productId)}
+                          aria-label={"Remove " + l.label}
+                          className="rounded-lg border border-depth-200 px-2 py-1 text-xs text-depth-600"
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {formError && <p className="text-sm text-alert-500">{formError}</p>}
 
             <div className="space-y-3">
@@ -411,10 +608,10 @@ export default function TerminalPage() {
               {method === "CASH" ? (
                 <button
                   onClick={handleCashSale}
-                  disabled={submitting || !selectedProduct}
+                  disabled={submitting || (!selectedProduct && basket.length === 0)}
                   className="tap-target w-full rounded-xl2 bg-cash-500 font-display text-lg font-bold text-white shadow-soft transition active:scale-[0.98] disabled:opacity-60"
                 >
-                  {submitting ? "Saving…" : "Record Cash Sale · KES " + amount.toLocaleString()}
+                  {submitting ? "Saving…" : "Record cash sale · KES " + chargeTotal.toLocaleString()}
                 </button>
               ) : (
                 <button

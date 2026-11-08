@@ -78,3 +78,36 @@ test("rejected sales stop retrying and are surfaced", async () => {
   assert.equal(rejected.length, 1);
   assert.equal(rejected[0].rejectReason, "other user");
 });
+
+test("every line of a multi-item sale keeps its own key but shares the receipt", async () => {
+  const q = await import("../src/lib/offlineQueue");
+  signedInUser = "user-a"; // the previous test signs the fake server in as someone else
+  const group = crypto.randomUUID();
+  const lines = [
+    { productId: "p3l", quantity: 2, clientUnitPrice: 40 },
+    { productId: "p5l", quantity: 1, clientUnitPrice: 60 },
+  ];
+  let sent: any[] = [];
+  const realFetch = (globalThis as any).fetch;
+  (globalThis as any).fetch = async (url: string, init: any) => {
+    sent = JSON.parse(init.body).sales;
+    return realFetch(url, init);
+  };
+  try {
+    for (const l of lines) {
+      await q.queueCashSale({
+        clientUuid: crypto.randomUUID(), ...l, clientSubmittedAt: new Date().toISOString(),
+        userId: "user-a", branchId: "b1", saleGroupId: group, receiptNo: "261108-ABCD",
+      });
+    }
+    const r = await q.flushQueue("user-a");
+    assert.equal(r.synced, 2);
+    assert.equal(sent.length, 2);
+    assert.equal(new Set(sent.map((s) => s.clientUuid)).size, 2);
+    assert.ok(sent.every((s) => s.saleGroupId === group && s.receiptNo === "261108-ABCD"));
+    // 2 x 40 + 1 x 60 = KES 140, as in the test report's planned online sale.
+    assert.equal(sent.reduce((t, s) => t + s.quantity * s.clientUnitPrice, 0), 140);
+  } finally {
+    (globalThis as any).fetch = realFetch;
+  }
+});

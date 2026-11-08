@@ -34,6 +34,9 @@ export interface QueuedCashSale {
   branchId: string | null;
   status: QueueStatus;
   rejectReason?: string;
+  /** Shared by every line of one multi-item sale. */
+  saleGroupId?: string;
+  receiptNo?: string;
   /** Legacy field from v1 rows. */
   synced?: boolean;
 }
@@ -176,6 +179,8 @@ export function toWire(row: QueuedCashSale) {
     // The server verifies these against the signed-in session.
     queuedByUserId: row.userId || undefined,
     queuedBranchId: row.branchId ?? undefined,
+    saleGroupId: row.saleGroupId,
+    receiptNo: row.receiptNo,
   };
 }
 
